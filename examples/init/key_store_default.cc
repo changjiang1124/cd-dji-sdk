@@ -30,99 +30,65 @@
 namespace edge_sdk {
 
 namespace {
-uint8_t buffer[1500];
 std::shared_ptr<std::string> rsa2048_public_key_;
 std::shared_ptr<std::string> rsa2048_private_key_;
-const char* kPathPublickKey = "/tmp/pub_key";
-const char* kPathPrivateKey = "/tmp/private_key";
+
+// 改成你的测试路径
+const char* kPathPublicKey  = "/home/celestial/dev/esdk-test/keystore/public.der";
+const char* kPathPrivateKey = "/home/celestial/dev/esdk-test/keystore/private.der";
 }  // namespace
 
 KeyStoreDefault::KeyStoreDefault() {
-    if (ReadKeys()) {
-        return;
+    if (!ReadKeys()) {
+        printf("ERROR: cannot read DER keys from keystore\n");
     }
-    auto ret = GenerateKeys();
-    ReadKeys();
-    if (!ret) printf("ERROR: can not get valid keys\n");
 }
 
-ErrorCode KeyStoreDefault::RSA2048_GetDERPrivateKey(
-    std::string& private_key) const {
-    if (rsa2048_public_key_->empty()) {
+// 修正判断对象（之前写反了）
+ErrorCode KeyStoreDefault::RSA2048_GetDERPrivateKey(std::string& private_key) const {
+    if (!rsa2048_private_key_ || rsa2048_private_key_->empty()) {
         return kErrorParamGetFailure;
     }
     private_key = *rsa2048_private_key_;
     return kOk;
 }
-ErrorCode KeyStoreDefault::RSA2048_GetDERPublicKey(
-    std::string& public_key) const {
-    if (rsa2048_private_key_->empty()) {
+ErrorCode KeyStoreDefault::RSA2048_GetDERPublicKey(std::string& public_key) const {
+    if (!rsa2048_public_key_ || rsa2048_public_key_->empty()) {
         return kErrorParamGetFailure;
     }
     public_key = *rsa2048_public_key_;
     return kOk;
 }
 
+static bool ReadAll(const char* path, std::string& out) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return false; }
+    long n = ftell(f);
+    if (n <= 0) { fclose(f); return false; }
+    rewind(f);
+    out.resize(static_cast<size_t>(n));
+    size_t r = fread(&out[0], 1, out.size(), f);
+    fclose(f);
+    return r == out.size();
+}
+
 bool KeyStoreDefault::ReadKeys() {
-    uint32_t len = 0;
-    FILE* file = fopen(kPathPublickKey, "rb");
-    if (file) {
-        auto ret = fread(buffer, 1, sizeof(buffer), file);
-        if (ret > 0) {
-            len = ret;
-        }
-        printf("public key read len: %ld\n", ret);
-        fclose(file);
-    } else {
+    std::string pub, priv;
+    if (!ReadAll(kPathPublicKey, pub)) {
+        printf("ERROR: read public.der failed: %s\n", kPathPublicKey);
         return false;
     }
-    rsa2048_public_key_ = std::make_shared<std::string>((char*)buffer, len);
-
-    file = fopen(kPathPrivateKey, "rb");
-    if (file) {
-        auto ret = fread(buffer, 1, sizeof(buffer), file);
-        if (ret > 0) {
-            len = ret;
-        }
-        printf("private key len read len: %d\n", len);
-        fclose(file);
-    } else {
+    if (!ReadAll(kPathPrivateKey, priv)) {
+        printf("ERROR: read private.der failed: %s\n", kPathPrivateKey);
         return false;
     }
-    rsa2048_private_key_ = std::make_shared<std::string>((char*)buffer, len);
+    rsa2048_public_key_  = std::make_shared<std::string>(std::move(pub));
+    rsa2048_private_key_ = std::make_shared<std::string>(std::move(priv));
     return true;
 }
 
-bool KeyStoreDefault::GenerateKeys() {
-    RSA* rsa2048 = RSA_generate_key(2048, RSA_F4, NULL, NULL);
-    uint8_t* PKey = buffer;
-    auto key_len = i2d_RSAPublicKey(rsa2048, &PKey);
 
-    if (!rsa2048) {
-        return false;
-    }
-    rsa2048_public_key_ = std::make_shared<std::string>((char*)buffer, key_len);
-
-    FILE* pkey = fopen(kPathPublickKey, "wb");
-    if (pkey) {
-        fwrite(buffer, 1, key_len, pkey);
-        fclose(pkey);
-    }
-
-    uint8_t* PrivKey = buffer;
-    key_len = i2d_RSAPrivateKey(rsa2048, &PrivKey);
-    printf("Private len=%d\n", key_len);
-    rsa2048_private_key_ =
-        std::make_shared<std::string>((char*)buffer, key_len);
-
-    FILE* privkey = fopen(kPathPrivateKey, "wb");
-    if (privkey) {
-        fwrite(buffer, 1, key_len, privkey);
-        fclose(privkey);
-    }
-    RSA_free(rsa2048);
-    return true;
-}
 
 }  // namespace edge_sdk
 

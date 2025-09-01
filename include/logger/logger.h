@@ -26,7 +26,7 @@
 #include <cstdint>
 #include <functional>
 
-#include "error_code.h"
+#include "../error_code.h"
 
 namespace edge_sdk {
 

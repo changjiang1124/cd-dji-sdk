@@ -1,0 +1,2 @@
+1. accoridng to the folder structure in project rules, change the code dock_info_manager.cc to put logs and media (if any) in the right path.
+2. above the ongoing log of ESDK, output to a separte log file, only with time of check, and if any media files found, and if yes, the media file list, and if no, output "no media files found". thus to have a straightforward results. 

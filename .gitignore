@@ -1,0 +1,13 @@
+.trae/
+.venv/
+build/
+
+celestial_works/logs
+
+*.service
+
+nohup.*
+
+test_logrotate.sh
+
+**/__pycache__

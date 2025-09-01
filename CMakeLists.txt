@@ -113,6 +113,9 @@ target_link_libraries(sample_set_upload_cloud_strategy ${SAMPLE_LIB})
 add_executable(sample_cloud_api examples/cloud_api/sample_cloud_api.cc)
 target_link_libraries(sample_cloud_api ${SAMPLE_LIB})
 
+add_executable(dock_info_manager celestial_works/src/dock_info_manager.cc examples/init/pre_init.cc)
+target_link_libraries(dock_info_manager ${SAMPLE_LIB})
+
 if (NOT EXECUTABLE_OUTPUT_PATH)
     set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
 endif ()
