@@ -27,10 +27,10 @@ ls -la /home/celestial/dev/esdk-test/Edge-SDK/.venv/bin/python
 ls -la /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/sync_scheduler.py
 
 # 检查配置文件
-ls -la /home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json
+ls -la /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json
 
-# 测试SSH连接到NAS
-ssh edge_sync@192.168.200.103 "echo 'SSH连接正常'"
+# 测试SSH连接到NAS（使用~/.ssh/config中的主机别名）
+ssh nas-edge "echo 'SSH连接正常'"
 ```
 
 ### 2. 安装守护进程
@@ -219,8 +219,9 @@ daemon服务无法使用SSH配置文件中的别名，直接使用IP地址连接
 # 创建测试文件
 echo "test" > /data/temp/dji/media/test_$(date +%Y%m%d_%H%M%S).txt
 
-# 手动触发同步
-python sync_scheduler.py --once
+# 手动触发同步（使用项目虚拟环境）
+cd /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
+../.venv/bin/python sync_scheduler.py --once
 
 # 检查daemon日志
 journalctl -u media-sync-daemon --since "5 minutes ago"
@@ -234,13 +235,13 @@ journalctl -u media-sync-daemon --since "5 minutes ago"
    sudo journalctl -u media-sync-daemon --no-pager
    
    # 检查配置文件
-   python3 -c "import json; json.load(open('/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json'))"
+   /home/celestial/dev/esdk-test/Edge-SDK/.venv/bin/python -c "import json; json.load(open('/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json'))"
    ```
 
 2. **SSH连接失败**
    ```bash
-   # 测试SSH连接
-   ssh -v edge_sync@192.168.200.103
+   # 测试SSH连接（使用主机别名）
+   ssh -v nas-edge
    
    # 检查SSH密钥
    ls -la ~/.ssh/

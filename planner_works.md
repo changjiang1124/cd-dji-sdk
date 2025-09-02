@@ -700,7 +700,7 @@ class EnhancedMediaSyncScheduler(MediaSyncScheduler):
 
 ### 配置和文档
  9. **更新配置文件**
-    - 扩展`media_sync_config.json`
+    - 扩展`celestial_nasops/unified_config.json`
     - 添加新功能的配置项
     - 保持向后兼容性
  
@@ -717,15 +717,15 @@ class EnhancedMediaSyncScheduler(MediaSyncScheduler):
 - 无需重新安装daemon服务
 - 只需重启服务即可生效：
   ```bash
-  sudo systemctl restart dji-media-sync
-  sudo systemctl status dji-media-sync  # 检查状态
+  sudo systemctl restart media-sync-daemon
+  sudo systemctl status media-sync-daemon  # 检查状态
   ```
 
 **情况2：修改配置文件**
-- 修改 `media_sync_config.json` 后
+- 修改 `celestial_nasops/unified_config.json` 后
 - 重启服务生效：
   ```bash
-  sudo systemctl restart dji-media-sync
+  sudo systemctl restart media-sync-daemon
   ```
 
 **情况3：修改服务配置**
@@ -740,18 +740,18 @@ class EnhancedMediaSyncScheduler(MediaSyncScheduler):
 #### 验证生效步骤
 1. **检查服务状态**
    ```bash
-   sudo systemctl status dji-media-sync
+   sudo systemctl status media-sync-daemon
    ```
 
 2. **查看实时日志**
    ```bash
-   sudo journalctl -u dji-media-sync -f
+   sudo journalctl -u media-sync-daemon -f
    ```
 
 3. **手动测试同步**
    ```bash
    cd /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
-   python test_sync.py
+   ../.venv/bin/python sync_scheduler.py --once
    ```
 
 #### 常见问题处理
@@ -763,9 +763,9 @@ class EnhancedMediaSyncScheduler(MediaSyncScheduler):
 #### 开发调试模式
 在开发阶段，可以停止daemon服务，直接运行Python脚本进行调试：
 ```bash
-sudo systemctl stop dji-media-sync
+sudo systemctl stop media-sync-daemon
 cd /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
-python sync_scheduler.py  # 直接运行调试
+../.venv/bin/python sync_scheduler.py  # 直接运行调试
 ```
 
 ## 错误处理和恢复机制

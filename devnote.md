@@ -1178,12 +1178,10 @@ celestial_nasops/
 - 监控系统性能和稳定性
 - 根据实际使用情况优化配置参数
 **已删除的重复配置文件**:
-- `/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json`
-- `/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/config/media_sync_config.json`
+- 已统一删除旧路径，当前唯一配置文件：`/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json`
 
 **更新的代码文件**:
 - `media_sync.py`: 更新配置路径和配置项访问
-- `test_sync.py`: 更新配置验证逻辑
 - `nas_structure_manager.py`: 更新默认配置路径
 
 现在项目只使用 `unified_config.json` 作为唯一配置文件。

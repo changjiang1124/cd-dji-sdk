@@ -291,17 +291,17 @@ RestartSec=10
 WantedBy=multi-user.target
 """
     
-    service_file = '/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/dji-media-sync.service'
+    service_file = '/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/media_sync_daemon.service'
     
     with open(service_file, 'w', encoding='utf-8') as f:
         f.write(service_content)
     
     print(f"Systemd服务文件已创建: {service_file}")
     print("要安装服务，请运行:")
-    print(f"sudo cp {service_file} /etc/systemd/system/")
+    print(f"sudo cp {service_file} /etc/systemd/system/media-sync-daemon.service")
     print("sudo systemctl daemon-reload")
-    print("sudo systemctl enable dji-media-sync")
-    print("sudo systemctl start dji-media-sync")
+    print("sudo systemctl enable media-sync-daemon")
+    print("sudo systemctl start media-sync-daemon")
 
 def main():
     """主函数"""
