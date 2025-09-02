@@ -67,7 +67,8 @@ class StorageManager:
         nas_settings = self.config.get('nas_settings', {})
         self.nas_host = nas_settings.get('host', '192.168.200.103')
         self.nas_user = nas_settings.get('username', 'edge_sync')
-        self.nas_alias = nas_settings.get('alias', 'nas-edge')  # SSH配置别名
+        # 使用 unified_config.json 中的 ssh_alias；若未配置则回退为 username@host
+        self.nas_alias = nas_settings.get('ssh_alias') or f"{self.nas_user}@{self.nas_host}"
         self.nas_base_path = nas_settings.get('base_path', '/volume1/drone_media')
         
         # 存储管理配置

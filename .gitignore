@@ -1,17 +1,97 @@
+# Trae workspace and IDE settings
 .trae/
+.vscode/
+.idea/
+.history/
+
+# Python virtual environments
 .venv/
+venv/
+env/
+ENV/
+
+# Python caches and tooling
+**/__pycache__/
+*.py[cod]
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pytype/
+.pyright/
+
+# Test and coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# C/C++ builds (CMake & CLion)
 build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+Makefile
+compile_commands.json
+# Object files produced by native builds
+*.o
 
-celestial_works/logs
+# Packaging outputs
+.dist/
+dist/
+.eggs/
+*.egg-info/
 
-*.service
-
+# Logs
+*.log
+**/*.log
+celestial_works/logs/
+celestial_nasops/logs/
 nohup.*
 
+# Project-specific temporary scripts
+# Keep test script noise out of VCS; real tests should live under celestial_works/tests
 test_logrotate.sh
 
-**/__pycache__
+# System/Junk files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
 
+# Environment files (never commit secrets)
+.env
+.env.*
+.python-version
 
-**.log
-test_**
+# Large ML-related files (not used now, kept for safety)
+*.pb
+*.ckpt
+*.weights
+*.model
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.bin
+*.onnx
+*.tflite
+*.safetensors
+
+# Framework-specific (TensorFlow/PyTorch)
+frozen_inference_graph.pb
+saved_model.pb
+checkpoint
+model.ckpt*
+variables/
+*.pth
+*.pt
+
+# Model directories
+models/
+checkpoints/
+weights/

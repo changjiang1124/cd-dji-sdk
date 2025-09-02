@@ -50,22 +50,25 @@ class MediaSyncManager:
         self.nas_host = self.config['nas_settings']['host']
         self.nas_username = self.config['nas_settings']['username']
         self.nas_base_path = self.config['nas_settings']['base_path']
+        # 优先使用 SSH 别名（/home/celestial/.ssh/config 中配置的 Host）。若未配置则回退为 username@host
+        self.nas_alias = self.config['nas_settings'].get('ssh_alias') or f"{self.nas_username}@{self.nas_host}"
         self.max_retry = self.config['sync_settings']['max_retry_attempts']
         self.enable_checksum = self.config['sync_settings']['enable_checksum']
         self.delete_after_sync = self.config['sync_settings']['delete_after_sync']
         
-        # 初始化安全删除管理器
+        # 初始化安全删除管理器（传入 nas_alias 以便远程校验也走免密）
         safe_delete_delay = self.config['sync_settings'].get('safe_delete_delay_minutes', 30)
         self.safe_delete_manager = SafeDeleteManager(
             nas_host=self.nas_host,
             nas_username=self.nas_username,
+            nas_alias=self.nas_alias,
             delay_minutes=safe_delete_delay,
             enable_checksum=self.enable_checksum
         )
         
         # 初始化存储管理器
         self.storage_manager = StorageManager(config_file=self.config_path)
-        
+    
     def _load_config(self) -> Dict:
         """加载配置文件
         
@@ -203,7 +206,7 @@ class MediaSyncManager:
         """
         filename = os.path.basename(local_file_path)
         remote_dir = self.get_remote_path(filename)
-        remote_host_path = f"{self.nas_username}@{self.nas_host}:{remote_dir}"
+        remote_host_path = f"{self.nas_alias}:{remote_dir}"
         
         # 生成临时文件名（添加.tmp后缀和时间戳）
         timestamp = int(time.time() * 1000)  # 毫秒时间戳
@@ -262,7 +265,7 @@ class MediaSyncManager:
             是否创建成功
         """
         mkdir_cmd = [
-            'ssh', f"{self.nas_username}@{self.nas_host}",
+            'ssh', f"{self.nas_alias}",
             f'mkdir -p {remote_dir}'
         ]
         
@@ -297,8 +300,8 @@ class MediaSyncManager:
         Returns:
             是否传输成功
         """
-        # 使用SSH管道传输文件到临时位置
-        transfer_cmd = f"cat '{local_file_path}' | ssh {self.nas_username}@{self.nas_host} 'cat > {remote_temp_path}'"
+        # 使用SSH管道传输文件到临时位置（优先使用 ssh 别名以支持免密）
+        transfer_cmd = f"cat '{local_file_path}' | ssh {self.nas_alias} 'cat > {remote_temp_path}'"
         
         try:
             result = subprocess.run(
@@ -334,7 +337,7 @@ class MediaSyncManager:
             是否重命名成功
         """
         rename_cmd = [
-            'ssh', f"{self.nas_username}@{self.nas_host}",
+            'ssh', f"{self.nas_alias}",
             f'mv {remote_temp_path} {remote_final_path}'
         ]
         
@@ -367,7 +370,7 @@ class MediaSyncManager:
             remote_temp_path: 远程临时文件路径
         """
         cleanup_cmd = [
-            'ssh', f"{self.nas_username}@{self.nas_host}",
+            'ssh', f"{self.nas_alias}",
             f'rm -f {remote_temp_path}'
         ]
         
@@ -401,7 +404,7 @@ class MediaSyncManager:
             # 通过SSH计算远程文件的MD5
             ssh_cmd = [
                 'ssh',
-                f"{self.nas_username}@{self.nas_host}",
+                f"{self.nas_alias}",
                 f"md5sum {remote_file_path}"
             ]
             

@@ -64,7 +64,8 @@ class SafeDeleteManager:
                  nas_username: str = "edge_sync",
                  delay_minutes: int = 30,
                  pending_file: str = None,
-                 enable_checksum: bool = True):
+                 enable_checksum: bool = True,
+                 nas_alias: str = "nas-edge"):
         """初始化安全删除管理器
         
         Args:
@@ -73,11 +74,13 @@ class SafeDeleteManager:
             delay_minutes: 延迟删除时间（分钟）
             pending_file: 待删除任务文件路径
             enable_checksum: 是否启用校验和验证
+            nas_alias: SSH 别名（优先使用，来自 /home/celestial/.ssh/config 的 Host 配置）
         """
         self.nas_host = nas_host
         self.nas_username = nas_username
         self.delay_minutes = delay_minutes
         self.enable_checksum = enable_checksum
+        self.nas_alias = nas_alias
         
         # 设置待删除任务文件路径
         if pending_file is None:
@@ -91,7 +94,7 @@ class SafeDeleteManager:
         # 加载待删除任务
         self.pending_deletes: List[DeleteTask] = self._load_pending_deletes()
         
-        self.logger.info(f"SafeDeleteManager初始化完成，延迟删除时间: {delay_minutes}分钟")
+        self.logger.info(f"SafeDeleteManager初始化完成，延迟删除时间: {delay_minutes}分钟，SSH目标优先使用别名: {self.nas_alias}")
     
     def _setup_logger(self) -> logging.Logger:
         """设置日志记录器"""
@@ -311,8 +314,9 @@ class SafeDeleteManager:
         Returns:
             远程文件是否存在
         """
+        ssh_target = self.nas_alias if self.nas_alias else f"{self.nas_username}@{self.nas_host}"
         check_cmd = [
-            'ssh', f"{self.nas_username}@{self.nas_host}",
+            'ssh', ssh_target,
             f'test -f {remote_file_path}'
         ]
         
@@ -343,8 +347,9 @@ class SafeDeleteManager:
         Returns:
             校验和是否匹配
         """
+        ssh_target = self.nas_alias if self.nas_alias else f"{self.nas_username}@{self.nas_host}"
         checksum_cmd = [
-            'ssh', f"{self.nas_username}@{self.nas_host}",
+            'ssh', ssh_target,
             f'md5sum {remote_file_path}'
         ]
         

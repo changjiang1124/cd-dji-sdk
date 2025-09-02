@@ -243,12 +243,50 @@ nohup ./build/bin/dock_info_manager > ./celestial_works/logs/media_list.log 2>&1
 │   │   └── 16/
 │   └── 02/
 └── 2023/
-```
-
 #### 4. 测试策略
 - 单元测试：聚焦 `celestial_nasops` 核心模块（配置管理、路径生成、校验和计算）
 - 集成测试：通过在开发环境手动触发同步、验证NAS连通性与权限
-- 稳定性测试：长时间运行 daemon，观察日志与资源使用
+```
+
+#### 5. 烟雾测试（Smoke Test）
+
+用于快速验证“边缘服务器 → NAS”的传输链路是否按期工作（依赖 systemd 服务：media-sync-daemon）。
+
+- 脚本路径：`celestial_nasops/tools/smoke_transfer_check.py`
+- 配置来源：`celestial_nasops/unified_config.json`（使用 local_settings.media_path、nas_settings.base_path、sync_settings.interval_minutes 等）
+- 远端组织结构：按年/月/日（例如 `base_path/2025/09/02/filename`）
+
+运行示例：
+```bash
+# 激活虚拟环境（如需）
+source /home/celestial/dev/esdk-test/Edge-SDK/.venv/bin/activate
+
+# 基础用法：根据配置的调度周期（interval_minutes）自动计算等待时间（+2分钟）
+python celestial_nasops/tools/smoke_transfer_check.py
+
+# 指定等待时间与轮询间隔
+python celestial_nasops/tools/smoke_transfer_check.py --wait-minutes 12 --poll-interval 30
+
+# 仅基于本地删除判断（不检查远端存在，弱判据）
+python celestial_nasops/tools/smoke_transfer_check.py --no-remote-check
+
+# 遇到排障需求，可手动触发一次同步（不依赖系统服务的周期执行）
+python celestial_nasops/sync_scheduler.py --once
+```
+
+判定逻辑：
+- 在本地媒体目录写入一个小测试文件（带日期前缀）；
+- 轮询检查 NAS 端是否出现目标文件；
+- 若配置 `delete_after_sync=true`，同时要求本地文件被删除，以更严格判定成功。
+
+先决条件：
+- 已完成 SSH 免密并配置 `~/.ssh/config` 中的 Host 别名（例如 `nas-edge`）；
+- systemd 服务已安装并运行：`sudo systemctl status media-sync-daemon`（仅供参考，本脚本不调用 systemctl）。
+
+常见排障：
+- 查看服务日志：`journalctl -u media-sync-daemon --since '30 min ago' -n 200`
+- 手动触发一次：`python celestial_nasops/sync_scheduler.py --once`
+- 校验配置：`celestial_nasops/unified_config.json` 中的 `nas_settings.base_path`、`local_settings.media_path`、`sync_settings.interval_minutes`、`delete_after_sync` 是否符合预期。- 稳定性测试：长时间运行 daemon，观察日志与资源使用
 - 性能测试：大批量文件同步下的吞吐与重试机制
 
 ### 网络配置
@@ -1169,9 +1207,52 @@ celestial_nasops/
 ├── storage_manager.py     # 存储空间管理
 ├── sync_lock_manager.py   # 同步锁管理器
 ├── config_manager.py      # 配置管理器
+├── email_notifier.py      # 邮件通知模块
 ├── unified_config.json    # 统一配置文件
 └── README (本文件)        # 项目说明与运维手册
 ```
+
+### 邮件通知模块 (email_notifier.py)
+**功能说明**:
+- 提供统一的邮件发送接口，支持多种通知类型（成功、警告、错误、信息）
+- 自动从 `.env` 文件读取 SMTP 配置信息
+- 支持批量发送和自定义邮件格式
+- 为其他模块提供邮件通知服务
+
+**配置要求**:
+需要在项目根目录的 `.env` 文件中配置以下 SMTP 参数：
+```
+SMTP_SERVER=your_smtp_server
+SMTP_PORT=587
+SMTP_USER=your_email@domain.com
+SMTP_PASSWORD=your_password
+SMTP_RECIPIENT=recipient@domain.com
+```
+
+**使用示例**:
+```python
+from email_notifier import EmailNotifier
+
+notifier = EmailNotifier()
+# 发送成功通知
+notifier.send_success("同步完成", "媒体文件同步成功完成")
+# 发送错误通知
+notifier.send_error("同步失败", "网络连接异常", error_details)
+```
+
+**特性**:
+- 自动添加时间戳
+- 支持 HTML 和纯文本格式
+- 包含详细的错误处理和日志记录
+- 提供全局实例 `email_notifier` 供直接导入使用
+- 自动检测 SMTP 端口类型（465 使用 SSL，其他使用 STARTTLS）
+
+**已修复的问题**:
+- ✅ 修复了 SMTP 端口 465 的 SSL 连接问题
+- ✅ 修复了邮件头格式导致的 "550 Message headers fail syntax check" 错误
+- ✅ 优化了邮件头编码，避免特殊字符问题
+
+**测试状态**: ✅ 全部测试通过 (4/4 单个通知 + 3/3 批量通知 + 自定义邮件)
 
 ### 下一步计划
 - 部署到生产环境进行实际测试

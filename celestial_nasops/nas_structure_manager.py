@@ -46,13 +46,20 @@ class NASStructureManager:
         self.logger = self._setup_logging()
         
         # NAS连接信息
-        self.nas_host = self.config['nas_server']['host']
-        self.nas_username = self.config['nas_server']['username']
-        self.nas_base_path = self.config['nas_server']['remote_path']
+        self.nas_host = self.config['nas_server']['host'] if 'nas_server' in self.config else self.config['nas_settings']['host']
+        self.nas_username = self.config['nas_server']['username'] if 'nas_server' in self.config else self.config['nas_settings']['username']
+        self.nas_base_path = self.config['nas_server']['remote_path'] if 'nas_server' in self.config else self.config['nas_settings']['base_path']
+        # 新增：SSH 别名，来自 unified_config.json 的 nas_settings.ssh_alias
+        self.nas_alias = (self.config.get('nas_settings', {}) or {}).get('ssh_alias', 'nas-edge')
         
         # 日期格式配置
-        self.date_format = self.config['file_organization']['date_format']
-        self.use_date_structure = self.config['file_organization']['use_date_structure']
+        # 兼容旧字段 file_organization 与新字段 file_organization/enable_date_structure
+        if 'file_organization' in self.config:
+            self.date_format = self.config['file_organization'].get('date_format') or self.config['file_organization'].get('date_format', "%Y/%m/%d")
+            self.use_date_structure = self.config['file_organization'].get('use_date_structure') or self.config['file_organization'].get('enable_date_structure', True)
+        else:
+            self.date_format = "%Y/%m/%d"
+            self.use_date_structure = True
     
     def _load_config(self, config_file: str = None) -> dict:
         """加载配置文件
@@ -142,9 +149,10 @@ class NASStructureManager:
         Returns:
             (成功标志, 标准输出, 错误输出)
         """
+        ssh_target = self.nas_alias if getattr(self, 'nas_alias', None) else f'{self.nas_username}@{self.nas_host}'
         ssh_command = [
             'ssh',
-            f'{self.nas_username}@{self.nas_host}',
+            ssh_target,
             command
         ]
         
