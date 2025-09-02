@@ -1,0 +1,42 @@
+[Unit]
+Description=DJI Dock Info Manager Service
+Documentation=https://developer.dji.com/doc/edge-sdk-tutorial/
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=celestial
+Group=celestial
+WorkingDirectory=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works
+ExecStart=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/bin/dock_info_manager
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# 环境变量配置
+Environment=LD_LIBRARY_PATH=/home/celestial/dev/esdk-test/Edge-SDK/lib/x86_64
+Environment=DJI_LOG_PATH=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs
+Environment=DJI_CONFIG_PATH=/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json
+
+# 日志配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dock-info-manager
+
+# 安全配置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs
+ReadWritePaths=/data/temp/dji
+ReadWritePaths=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/media
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

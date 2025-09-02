@@ -31,6 +31,8 @@ sys.path.append('/home/celestial/dev/esdk-test/Edge-SDK')
 # 导入安全删除管理器和存储管理器
 from safe_delete_manager import SafeDeleteManager
 from storage_manager import StorageManager
+# 导入数据库操作类
+from media_status_db import MediaStatusDB, FileStatus
 
 class MediaSyncManager:
     """媒体文件同步管理器"""
@@ -68,6 +70,12 @@ class MediaSyncManager:
         
         # 初始化存储管理器
         self.storage_manager = StorageManager(config_file=self.config_path)
+        
+        # 初始化数据库连接
+        self.db = MediaStatusDB()
+        if not self.db.connect():
+            self.logger.error("数据库连接失败，无法继续执行")
+            raise RuntimeError("数据库连接失败")
     
     def _load_config(self) -> Dict:
         """加载配置文件
@@ -195,11 +203,12 @@ class MediaSyncManager:
             now = datetime.now()
             return f"{self.nas_base_path}/{now.year}/{now.month:02d}/{now.day:02d}/"
     
-    def sync_file_to_nas(self, local_file_path: str) -> bool:
+    def sync_file_to_nas(self, local_file_path: str, file_info: Dict = None) -> bool:
         """同步单个文件到NAS（原子性传输）
         
         Args:
             local_file_path: 本地文件路径
+            file_info: 文件信息字典（包含数据库记录信息）
             
         Returns:
             同步是否成功
@@ -216,13 +225,23 @@ class MediaSyncManager:
         
         self.logger.info(f"开始原子性同步文件: {filename} -> {remote_host_path}")
         
-        # 计算本地文件校验和
+        # 更新数据库状态为传输中
+        if not self.db.update_transfer_status(local_file_path, FileStatus.DOWNLOADING):
+            self.logger.error(f"更新传输状态失败: {filename}")
+            return False
+        
+        # 计算本地文件校验和（优先使用数据库中的hash）
         local_checksum = ""
         if self.enable_checksum:
-            local_checksum = self.get_file_checksum(local_file_path)
-            if not local_checksum:
-                self.logger.error(f"无法计算本地文件校验和: {filename}")
-                return False
+            if file_info and file_info.get('file_hash'):
+                local_checksum = file_info['file_hash']
+                self.logger.debug(f"使用数据库中的文件hash: {filename}")
+            else:
+                local_checksum = self.get_file_checksum(local_file_path)
+                if not local_checksum:
+                    self.logger.error(f"无法计算本地文件校验和: {filename}")
+                    self.db.update_transfer_status(local_file_path, FileStatus.FAILED, "无法计算文件校验和")
+                    return False
         
         try:
             # 1. 创建远程目录
@@ -246,11 +265,17 @@ class MediaSyncManager:
                 self._cleanup_remote_temp_file(remote_temp_path)
                 return False
             
+            # 更新数据库状态为传输完成
+            if not self.db.update_transfer_status(local_file_path, FileStatus.COMPLETED):
+                self.logger.warning(f"更新传输完成状态失败: {filename}")
+            
             self.logger.info(f"文件原子性传输成功: {filename}")
             return True
             
         except Exception as e:
             self.logger.error(f"文件传输异常: {filename}, 错误: {e}")
+            # 更新数据库状态为传输失败
+            self.db.update_transfer_status(local_file_path, FileStatus.FAILED, str(e))
             # 清理可能存在的临时文件
             self._cleanup_remote_temp_file(remote_temp_path)
             return False
@@ -426,67 +451,87 @@ class MediaSyncManager:
             self.logger.error(f"远程校验和验证异常: {e}")
             return False
     
-    def get_media_files(self) -> List[str]:
-        """获取本地媒体文件列表
+    def get_ready_to_transfer_files(self) -> List[Dict]:
+        """从数据库获取准备传输的文件列表
         
         Returns:
-            媒体文件路径列表
+            待传输文件信息列表
         """
-        media_files = []
-        
-        if not os.path.exists(self.local_media_path):
-            self.logger.warning(f"媒体文件目录不存在: {self.local_media_path}")
-            return media_files
-        
         try:
-            for filename in os.listdir(self.local_media_path):
-                file_path = os.path.join(self.local_media_path, filename)
-                if os.path.isfile(file_path):
-                    media_files.append(file_path)
+            files_info = self.db.get_ready_to_transfer_files()
+            self.logger.info(f"从数据库查询到 {len(files_info)} 个待传输文件")
             
-            self.logger.info(f"发现 {len(media_files)} 个媒体文件")
-            return media_files
+            # 转换为字典格式，便于后续处理
+            files_list = []
+            for file_info in files_info:
+                files_list.append({
+                    'id': file_info.id,
+                    'file_path': file_info.file_path,
+                    'file_name': file_info.file_name,
+                    'file_size': file_info.file_size,
+                    'file_hash': file_info.file_hash,
+                    'download_status': file_info.download_status,
+                    'transfer_status': file_info.transfer_status,
+                    'transfer_retry_count': file_info.transfer_retry_count
+                })
+            
+            return files_list
             
         except Exception as e:
-            self.logger.error(f"读取媒体文件目录失败: {e}")
+            self.logger.error(f"从数据库查询待传输文件失败: {e}")
             return []
     
     def sync_all_files(self) -> Dict[str, int]:
-        """同步所有媒体文件
+        """同步所有待传输的媒体文件
         
         Returns:
             同步结果统计 {'success': 成功数量, 'failed': 失败数量}
         """
-        media_files = self.get_media_files()
+        # 从数据库获取待传输文件
+        files_to_transfer = self.get_ready_to_transfer_files()
         
-        if not media_files:
+        if not files_to_transfer:
             self.logger.info("没有发现需要同步的媒体文件")
             return {'success': 0, 'failed': 0}
         
         success_count = 0
         failed_count = 0
         
-        for file_path in media_files:
-            filename = os.path.basename(file_path)
+        for file_info in files_to_transfer:
+            file_path = file_info['file_path']
+            filename = file_info['file_name']
+            
+            # 检查本地文件是否存在
+            if not os.path.exists(file_path):
+                self.logger.error(f"本地文件不存在: {file_path}")
+                self.db.update_transfer_status(file_path, FileStatus.FAILED, "本地文件不存在")
+                failed_count += 1
+                continue
+            
+            # 检查重试次数限制
+            if file_info['transfer_retry_count'] >= self.max_retry:
+                self.logger.warning(f"文件重试次数已达上限，跳过: {filename}")
+                failed_count += 1
+                continue
             
             # 重试机制
             sync_success = False
-            for attempt in range(1, self.max_retry + 1):
+            current_retry = file_info['transfer_retry_count']
+            
+            for attempt in range(current_retry + 1, self.max_retry + 1):
                 self.logger.info(f"同步文件 {filename} (尝试 {attempt}/{self.max_retry})")
                 
-                # 获取远程文件路径和本地文件校验和
+                # 获取远程文件路径
                 remote_dir = self.get_remote_path(filename)
                 remote_file_path = f"{remote_dir}{filename}"
-                local_checksum = None
-                if self.enable_checksum:
-                    local_checksum = self.get_file_checksum(file_path)
                 
-                if self.sync_file_to_nas(file_path):
+                if self.sync_file_to_nas(file_path, file_info):
                     sync_success = True
                     success_count += 1
                     
                     # 同步成功后安排延迟删除本地文件（如果配置启用）
                     if self.delete_after_sync:
+                        local_checksum = file_info.get('file_hash')
                         if self.safe_delete_manager.schedule_delete(
                             local_file_path=file_path,
                             remote_file_path=remote_file_path,

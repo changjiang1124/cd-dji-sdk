@@ -28,6 +28,7 @@ link_directories(${CMAKE_BINARY_DIR})
 link_libraries(-ledgesdk -lstdc++)
 link_libraries(-lcrypto)
 link_libraries(-lssh2)
+link_libraries(-lsqlite3)
 
 find_package(OpenCV QUIET)
 if (OpenCV_FOUND)
@@ -113,7 +114,7 @@ target_link_libraries(sample_set_upload_cloud_strategy ${SAMPLE_LIB})
 add_executable(sample_cloud_api examples/cloud_api/sample_cloud_api.cc)
 target_link_libraries(sample_cloud_api ${SAMPLE_LIB})
 
-add_executable(dock_info_manager celestial_works/src/dock_info_manager.cc examples/init/pre_init.cc)
+add_executable(dock_info_manager celestial_works/src/dock_info_manager.cc celestial_works/src/media_status_db.cc examples/init/pre_init.cc)
 target_link_libraries(dock_info_manager ${SAMPLE_LIB})
 
 if (NOT EXECUTABLE_OUTPUT_PATH)

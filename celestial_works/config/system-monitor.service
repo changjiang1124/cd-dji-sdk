@@ -1,0 +1,52 @@
+[Unit]
+Description=DJI Edge SDK System Monitor
+Documentation=https://developer.dji.com/doc/edge-sdk-tutorial/cn/
+After=network.target dock-info-manager.service
+Wants=dock-info-manager.service
+
+[Service]
+# 服务类型
+Type=simple
+Restart=always
+RestartSec=30
+
+# 用户和组
+User=celestial
+Group=celestial
+
+# 工作目录
+WorkingDirectory=/home/celestial/dev/esdk-test/Edge-SDK
+
+# 环境变量
+Environment=PATH=/home/celestial/dev/esdk-test/Edge-SDK/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONPATH=/home/celestial/dev/esdk-test/Edge-SDK
+Environment=VIRTUAL_ENV=/home/celestial/dev/esdk-test/Edge-SDK/.venv
+
+# 执行命令
+ExecStart=/home/celestial/dev/esdk-test/Edge-SDK/.venv/bin/python /home/celestial/dev/esdk-test/Edge-SDK/celestial_works/config/system_monitor.py --interval 300
+
+# 停止命令
+ExecStop=/bin/kill -TERM $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 日志配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=system-monitor
+
+# 安全配置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs
+ReadWritePaths=/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
+
+# 资源限制
+MemoryMax=512M
+TasksMax=50
+
+[Install]
+WantedBy=multi-user.target

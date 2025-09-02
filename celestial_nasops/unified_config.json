@@ -62,7 +62,6 @@
     "description": "存储空间管理配置",
     "cleanup_rules": [
       {
-        "name": "日志文件清理",
         "path_pattern": "*/logs/*",
         "file_extension": ".log",
         "max_age_days": 7,
@@ -70,7 +69,6 @@
         "enabled": true
       },
       {
-        "name": "临时文件清理",
         "path_pattern": "*/temp/*",
         "file_extension": "*",
         "max_age_days": 1,
@@ -78,7 +76,6 @@
         "enabled": true
       },
       {
-        "name": "旧媒体文件清理",
         "path_pattern": "*/media/*",
         "file_extension": ".jpg",
         "max_age_days": 30,
@@ -86,7 +83,6 @@
         "enabled": true
       },
       {
-        "name": "视频文件清理",
         "path_pattern": "*/media/*",
         "file_extension": ".mp4",
         "max_age_days": 60,
