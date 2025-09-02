@@ -427,23 +427,58 @@ class SafeDeleteManager:
         Returns:
             是否保存成功
         """
-        try:
-            # 确保目录存在
-            os.makedirs(os.path.dirname(self.pending_file), exist_ok=True)
-            
-            # 转换为字典列表
-            data = [asdict(task) for task in self.pending_deletes]
-            
-            # 保存到文件
-            with open(self.pending_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            
-            self.logger.debug(f"保存了 {len(self.pending_deletes)} 个待删除任务")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"保存待删除任务失败: {e}")
-            return False
+        max_retries = 3
+        retry_delay = 1  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                # 确保目录存在
+                os.makedirs(os.path.dirname(self.pending_file), exist_ok=True)
+                
+                # 转换为字典列表
+                data = [asdict(task) for task in self.pending_deletes]
+                
+                # 使用临时文件进行原子写入
+                temp_file = self.pending_file + '.tmp'
+                
+                # 保存到临时文件
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                # 原子性重命名
+                os.rename(temp_file, self.pending_file)
+                
+                self.logger.debug(f"保存了 {len(self.pending_deletes)} 个待删除任务")
+                return True
+                
+            except OSError as e:
+                if e.errno == 30:  # Read-only file system
+                    self.logger.warning(f"文件系统只读错误，尝试 {attempt + 1}/{max_retries}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                        continue
+                else:
+                    self.logger.error(f"文件系统错误: {e}")
+                    break
+            except Exception as e:
+                self.logger.error(f"保存待删除任务失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                break
+            finally:
+                # 清理临时文件
+                temp_file = self.pending_file + '.tmp'
+                if os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except Exception:
+                        pass  # 忽略清理错误
+        
+        self.logger.error(f"保存待删除任务失败，已重试 {max_retries} 次")
+        return False
     
     def get_pending_count(self) -> int:
         """获取待删除任务数量

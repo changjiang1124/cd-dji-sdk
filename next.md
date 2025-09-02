@@ -16,24 +16,26 @@ SMTP_PASSWORD
 SMTP_RECIPIENT
 ```
 ---
-
+===
 review the /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/tools/smoke_transfer_check.py, to check if its function is just:
 1. put test files in the /data/temp/dji/media/
-2. after 10 minutes, check if they have been transfered to /volume1/homes/edge_sync/EdgeBackup
+2. after 10 minutes, check if they have been transfered to /volume1/homes/edge_sync/EdgeBackup (is the program currently use ~/drone_media/EdgeBackup as the target folder? if yes, that's fine, no need to change it. just let me know )
 3. if they are deleted in /data/temp/dji/media/ afterwards. 
 
 this is to test the work of daemon.
-after we introduced sqlite for the media file management, should putting file in the /data/temp/dji/media/ is not enough? we also need to write a entry in the DB as well? 
+since we introduced sqlite for the media file management, should putting file in the /data/temp/dji/media/ is not enough? we also need to write a entry in the DB as well? 
 
 ---
 === 
-WIP
+DONE
 2025-09-02 14:13:06
-*planned*
+*DONE*
 
 put the program /home/celestial/dev/esdk-test/Edge-SDK/build/bin/dock_info_manager as startup auto running. please review the devnote.md and the /home/celestial/dev/esdk-test/Edge-SDK/celestial_works/src/dock_info_manager.cc code to check if it's keeping checking media in dock and put them to /data/temp/dji/media/ if any. and our transfer to NAS for the stage 2, won't transfer unfinished transfer from dock, meanning, we need to mark the status in sqlite3?
 
 ---
+===
+*DONE*
 
 Please fix the issues you have spotted. the main goal is to get every running:
 - dock-info-manager 服务当前未运行 (make it run as startup auto)
@@ -46,3 +48,7 @@ note we are using /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unifie
  /home/celestial/.ssh/config for ssh connection to nas (host: nas-edge), as this is to ensure connection without password by using key pair.
 
 
+---
+===
+for the smoke test, should you check daemon processes whether they are existing or not? this could be an obvious test items before actually generate test files and waiting for the transfer to complete.
+the db could be locked due to two daemon? is there a risk? how to solve it? do we need to give up sqlite for other solutions?

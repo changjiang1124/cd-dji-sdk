@@ -117,5 +117,39 @@
     "connection_timeout_seconds": 30,
     "max_concurrent_transfers": 3,
     "description": "安全和连接配置"
+  },
+  
+  "database": {
+    "path": "/data/temp/dji/media_status.db",
+    "enable_wal_mode": true,
+    "connection_timeout_seconds": 30,
+    "max_retries": 3,
+    "backup_interval_hours": 24,
+    "cleanup_old_records_days": 90,
+    "description": "数据库配置 - 用于跟踪媒体文件传输状态"
+  },
+  
+  "smoke_test": {
+    "default_file_size_bytes": 1024,
+    "default_wait_minutes": 12,
+    "poll_interval_seconds": 30,
+    "test_file_prefix": "smoketest",
+    "test_file_extension": ".txt",
+    "cleanup_test_files": true,
+    "enable_database_logging": true,
+    "description": "烟雾测试配置 - 用于验证媒体同步守护进程功能"
+  },
+  
+  "diagnostics": {
+    "enable_system_checks": true,
+    "check_disk_space": true,
+    "check_network_connectivity": true,
+    "check_ssh_connection": false,
+    "check_daemon_status": true,
+    "check_database_health": true,
+    "report_format": "detailed",
+    "save_reports": true,
+    "reports_path": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/diagnostics",
+    "description": "系统诊断配置 - 用于全面检查系统健康状态"
   }
 }

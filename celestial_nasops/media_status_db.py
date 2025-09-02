@@ -272,6 +272,66 @@ class MediaStatusDB:
             self.logger.error(f"查询文件信息失败: {e}")
             return None
             
+    def insert_file_record(self, file_path: str, file_name: str, file_size: int, 
+                          file_hash: str = "", download_status: str = "pending", 
+                          transfer_status: str = "pending") -> bool:
+        """
+        插入新的文件记录到数据库
+        
+        Args:
+            file_path: 文件路径
+            file_name: 文件名
+            file_size: 文件大小（字节）
+            file_hash: 文件哈希值（可选）
+            download_status: 下载状态（默认pending）
+            transfer_status: 传输状态（默认pending）
+            
+        Returns:
+            bool: 插入成功返回True
+        """
+        try:
+            with self.lock:
+                if not self.connection:
+                    self.logger.error("数据库未连接")
+                    return False
+                    
+                # 检查文件是否已存在
+                if self.file_exists(file_path):
+                    self.logger.warning(f"文件记录已存在: {file_path}")
+                    return False
+                    
+                cursor = self.connection.cursor()
+                cursor.execute("""
+                    INSERT INTO media_transfer_status (
+                        file_path, file_name, file_size, file_hash,
+                        download_status, download_start_time, download_end_time, download_retry_count,
+                        transfer_status, transfer_start_time, transfer_end_time, transfer_retry_count,
+                        last_error_message, created_at, updated_at
+                    ) VALUES (
+                        ?, ?, ?, ?,
+                        ?, 
+                        CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                        CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                        0,
+                        ?, NULL, NULL, 0,
+                        '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                """, (
+                    file_path, file_name, file_size, file_hash,
+                    download_status, download_status, download_status,
+                    transfer_status
+                ))
+                
+                self.connection.commit()
+                cursor.close()
+                
+                self.logger.info(f"文件记录插入成功: {file_path} (下载状态: {download_status}, 传输状态: {transfer_status})")
+                return True
+                
+        except sqlite3.Error as e:
+            self.logger.error(f"插入文件记录失败: {e}")
+            return False
+            
     def file_exists(self, file_path: str) -> bool:
         """
         检查文件是否存在于数据库中
