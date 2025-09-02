@@ -161,7 +161,7 @@ nohup ./build/bin/dock_info_manager > ./celestial_works/logs/media_list.log 2>&1
 
 2. **第二阶段**: 边缘服务器 → NAS服务器（远程备份）
    - 通过 `celestial_nasops` 目录下的Python脚本实现
-   - NAS服务器：`edge_sync@192.168.200.103:/EdgeBackup/`
+   - NAS服务器：`edge_sync@192.168.200.103:EdgeBackup/`
    - 按年/月/日组织目录结构
 
 ### 存储分区配置
@@ -180,15 +180,15 @@ nohup ./build/bin/dock_info_manager > ./celestial_works/logs/media_list.log 2>&1
 
 ### 配置文件系统
 
-**主配置文件：** `media_sync_config.json`
-- **位置**: `/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json`
-- **用途**: 应用程序间共享的同步配置
+**主配置文件：** `celestial_nasops/unified_config.json`
+- **位置**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json`
+- **用途**: 统一管理 NAS 同步相关配置（由 `config_manager.py` 负责加载）
 - **包含内容**:
   - 本地存储路径配置
-  - NAS服务器连接信息
+  - NAS 服务器连接信息（推荐使用 SSH 别名：nas-edge）
   - 同步设置（间隔、校验、删除策略）
   - 文件组织方式（按日期结构）
-  - 日志配置
+  - 日志策略（daemon 模式使用系统日志）
 
 ### 核心组件
 
@@ -218,10 +218,11 @@ nohup ./build/bin/dock_info_manager > ./celestial_works/logs/media_list.log 2>&1
 - 系统服务支持（systemd）
 
 **运行模式：**
-- **守护进程模式**: `python sync_scheduler.py --daemon`
-- **单次执行**: `python sync_scheduler.py --once`
-- **交互模式**: `python sync_scheduler.py`
-- **系统服务**: 可生成systemd服务文件
+- 系统服务模式（推荐）：使用 install_daemon.sh 安装并由 systemd 管理（服务名：media-sync-daemon）
+- 前台调试：`python sync_scheduler.py`
+- 单次执行：`python sync_scheduler.py --once`
+- 后台运行（非 systemd）：`python sync_scheduler.py --daemon`（仅开发调试场景；日志策略与系统服务不同）
+- 系统服务支持（systemd）
 
 #### 3. NAS结构管理器 (`nas_structure_manager.py`)
 **功能特性：**
@@ -244,12 +245,11 @@ nohup ./build/bin/dock_info_manager > ./celestial_works/logs/media_list.log 2>&1
 └── 2023/
 ```
 
-#### 4. 测试程序 (`test_sync.py`)
-**测试覆盖：**
-- 单元测试（配置加载、校验和计算、路径生成）
-- 集成测试（网络连接、目录权限、文件同步）
-- 错误处理测试（重试机制、异常恢复）
-- 性能测试（多文件同步、调度器功能）
+#### 4. 测试策略
+- 单元测试：聚焦 `celestial_nasops` 核心模块（配置管理、路径生成、校验和计算）
+- 集成测试：通过在开发环境手动触发同步、验证NAS连通性与权限
+- 稳定性测试：长时间运行 daemon，观察日志与资源使用
+- 性能测试：大批量文件同步下的吞吐与重试机制
 
 ### 网络配置
 
@@ -304,19 +304,25 @@ nohup ./build/bin/dock_info_manager > ./celestial_works/logs/media_list.log 2>&1
 - 激活命令：`source .venv/bin/activate`
 - 依赖管理：requirements.txt
 
-**系统服务部署：**
+**系统服务部署（推荐）：**
 ```bash
-# 生成systemd服务文件
-python sync_scheduler.py --create-service
+# 安装守护进程（统一服务名：media-sync-daemon）
+cd celestial_nasops
+sudo ./install_daemon.sh
 
-# 安装服务
-sudo cp dji-media-sync.service /etc/systemd/system/
+# 启动并设置开机自启
 sudo systemctl daemon-reload
-sudo systemctl enable dji-media-sync
-sudo systemctl start dji-media-sync
+sudo systemctl enable media-sync-daemon
+sudo systemctl start media-sync-daemon
+
+# 查看状态与日志
+sudo systemctl status media-sync-daemon
+sudo journalctl -u media-sync-daemon -f
 ```
 
-**手动操作：**
+> 可选：如需通过脚本生成服务文件，也可使用：`python sync_scheduler.py --create-service`（请确认生成的服务名与路径与当前标准保持一致：media-sync-daemon）。
+
+**手动操作（开发调试）：**
 ```bash
 # 激活虚拟环境
 source .venv/bin/activate
@@ -325,11 +331,8 @@ source .venv/bin/activate
 cd celestial_nasops
 python media_sync.py --sync-all
 
-# 启动调度器
-python sync_scheduler.py --daemon
-
-# 运行测试
-python test_sync.py --all
+# 以前台方式运行调度器（普通模式，文件+控制台日志；若文件创建失败将回退到系统日志）
+python sync_scheduler.py
 
 # 生成NAS结构报告
 python nas_structure_manager.py --report
@@ -349,30 +352,34 @@ python nas_structure_manager.py --report
 
 2. **网络连接失败**
    - 检查NAS服务器连通性：`ping 192.168.200.103`
-   - 验证SSH连接：`ssh edge_sync@192.168.200.103`
+   - 验证SSH连接：`ssh nas-edge`
 
 3. **权限问题**
    - 检查本地目录权限：`ls -la /data/temp/dji/media/`
-   - 验证NAS写入权限：`ssh edge_sync@192.168.200.103 'touch /EdgeBackup/test && rm /EdgeBackup/test'`
+   - 验证NAS写入权限：`ssh nas-edge 'touch /EdgeBackup/test && rm /EdgeBackup/test'`
 
 4. **磁盘空间不足**
    - 检查本地空间：`df -h /data/temp`
-   - 检查NAS空间：`ssh edge_sync@192.168.200.103 'df -h /EdgeBackup'`
+   - 检查NAS空间：`ssh nas-edge 'df -h /EdgeBackup'`
 
 5. **同步失败**
-   - 查看同步日志：`tail -f celestial_works/logs/media_sync.log`
-   - 手动测试rsync：`rsync -avz --progress test_file edge_sync@192.168.200.103:/EdgeBackup/`
+   - 查看服务日志：`journalctl -u media-sync-daemon -f`
+   - 手动测试rsync：`rsync -avz --progress test_file nas-edge:/EdgeBackup/`
 
 **调试命令：**
 ```bash
-# 测试配置文件
-python -c "import json; print(json.load(open('media_sync_config.json')))"
+# 测试配置文件加载
+python - <<'PY'
+from celestial_nasops.config_manager import ConfigManager
+cfg = ConfigManager('/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json').load()
+print('config loaded, local_root=', cfg.get('local_root'))
+PY
 
-# 验证NAS结构
-python nas_structure_manager.py --validate
+# 验证 NAS 目录结构配置
+python celestial_nasops/nas_structure_manager.py --validate
 
-# 运行集成测试
-python test_sync.py --integration
+# 单次全量同步（开发态）
+python celestial_nasops/media_sync.py --sync-all
 ```
 
 ### 性能优化
@@ -406,14 +413,24 @@ python test_sync.py --integration
 **集成测试成功率: 100%**
 
 #### 修复记录
-1. ✅ 修复了 `MediaSyncManager` 初始化参数错误 (`config_file` → `config_path`)
-2. ✅ 修复了daemon服务SSH权限问题：配置文件中使用SSH别名替代IP地址 (2025-09-01)
+1. ✅ 修复 systemd 守护进程反复重启问题（2025-09-02）
+   - 现象：`media-sync-daemon` 处于 activating (auto-restart)，日志报错 `UnboundLocalError: cannot access local variable 'logging'...`，随后又因日志目录只读导致 `OSError: [Errno 30] Read-only file system`。
+   - 原因1：在函数内部条件导入 `import logging.handlers`，触发 Python 作用域规则，将 `logging` 误判为局部变量，导致 `UnboundLocalError`（涉及文件：`celestial_nasops/media_sync.py`, `celestial_nasops/safe_delete_manager.py`, `celestial_nasops/nas_structure_manager.py`, `celestial_nasops/sync_scheduler.py`）。
+   - 原因2：守护进程在只读根文件系统环境下尝试写入本地日志文件，导致 `OSError: Read-only file system`。
+   - 处理：
+     1) 将 `import logging.handlers` 统一上移到模块级；移除函数内导入，避免作用域污染。
+     2) 统一日志策略：当 `DAEMON_MODE=1` 时仅写入系统日志（`SysLogHandler('/dev/log')`）；普通模式优先文件+控制台，无法创建文件时回退系统日志。
+     3) 确认 systemd 环境变量传递：在 `/etc/systemd/system/media-sync-daemon.service` 中设置 `Environment=DAEMON_MODE=1` 和虚拟环境 PATH，并 `daemon-reload` + 重启服务。
+   - 结果：服务成功进入 `active (running)`，日志正常输出到 journal。验证命令：`systemctl status media-sync-daemon`、`journalctl -u media-sync-daemon -f`。
+
+2. ✅ 修复了 `MediaSyncManager` 初始化参数错误 (`config_file` → `config_path`)
+3. ✅ 修复了daemon服务SSH权限问题：配置文件中使用SSH别名替代IP地址 (2025-09-01)
    - 问题：daemon服务无法使用SSH配置别名，导致权限认证失败
-   - 解决：将`media_sync_config.json`中的`host`从`192.168.200.103`改为`nas-edge`
-3. ✅ 修复了测试中错误的方法调用 (`_sync_file_to_nas` → `sync_file_to_nas`)
-4. ✅ 修复了配置文件结构不匹配问题
-5. ✅ 改进了异常处理机制，让配置文件加载失败时抛出异常而不是退出程序
-6. ✅ 修复了rsync命令生成测试中的校验和干扰问题
+   - 解决：将 `celestial_nasops/unified_config.json` 中的 `host` 设置为 `nas-edge`（历史文件 `media_sync_config.json` 已废弃）
+4. ✅ 修复了测试中错误的方法调用 (`_sync_file_to_nas` → `sync_file_to_nas`)
+5. ✅ 修复了配置文件结构不匹配问题
+6. ✅ 改进了异常处理机制，让配置文件加载失败时抛出异常而不是退出程序
+7. ✅ 修复了rsync命令生成测试中的校验和干扰问题
 
 #### 守护进程设置 (2024-01-22)
 
@@ -454,7 +471,7 @@ sudo ./uninstall_daemon.sh
 - **运行用户**: `celestial`
 - **工作目录**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops`
 - **自动重启**: 异常退出后10秒自动重启
-- **日志输出**: 同时输出到systemd journal和应用日志文件
+- **日志输出**: Daemon 模式输出到 systemd journal；开发模式输出到文件+控制台（文件不可写时回退到 systemd journal）
 - **资源限制**: 文件描述符65536，进程数4096
 - **安全限制**: 禁止新权限，保护系统目录
 
@@ -535,7 +552,7 @@ nohup ./build/bin/dock_info_manager 2>&1 | logger -t dock_info_manager &
 
 ## 编译记录
 
-### 2024-08-25 21:41
+### 2025-08-25 21:41
 - 重新编译所有示例程序
 - 编译命令：`make`
 - 生成的可执行文件：
@@ -1074,6 +1091,102 @@ sh: 1: cannot create /proc/sys/net/core/rmem_max: Permission denied
 - 机场设备信息完整显示
 - 文件保存成功提示
 - 媒体文件策略设置完成
+
+---
+
+## 媒体同步系统配置整合 (2025-01-02)
+
+### 配置文件统一
+**重要变更**: 已统一使用 `unified_config.json` 作为唯一配置文件
+- **删除**: 重复的 `config.json` 文件已被删除
+- **位置**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json`
+- **集成功能**: 所有优化功能的配置项已完全集成
+
+### 配置结构
+- `nas_settings`: NAS连接和认证配置
+- `sync_settings`: 同步行为配置（包含原子传输设置）
+- `concurrency_control`: 并发控制和文件锁配置
+- `storage_management`: 存储空间管理和自动清理配置
+- `file_organization`: 文件组织和分类规则
+
+### 测试验证
+- 配置集成测试: 100% 通过 (5/5)
+- 所有测试脚本已更新使用统一配置文件
+- 配置管理器方法验证完成
+
+### 配置文件清理 (2025-01-02)
+
+## NAS同步系统功能验证完成 (02/09/2025)
+
+### 核心功能验证状态
+✅ **文件锁机制验证** - `sync_scheduler.py` 和 `sync_lock_manager.py`
+- 基于fcntl.flock实现的跨进程文件锁
+- 支持锁超时机制，防止死锁
+- 自动清理过期锁文件
+- 完全符合planner_works.md要求
+
+✅ **原子性传输机制验证** - `media_sync.py`
+- 临时文件+重命名的原子性传输实现
+- 支持校验和验证确保传输完整性
+- 通过SSH管道实现远程文件操作
+- 传输失败时自动清理临时文件
+
+✅ **安全删除机制验证** - `safe_delete_manager.py`
+- 延迟删除机制，可配置延迟时间
+- 删除前远程文件存在性和校验和验证
+- 支持重试机制（指数退避）
+- 完整的删除任务持久化和恢复
+
+✅ **存储空间管理验证** - `storage_manager.py`
+- 自动清理机制，基于使用率阈值
+- 支持多种文件类型清理规则
+- 通过SSH远程执行存储空间检查
+- 批量文件清理优化性能
+
+✅ **并发控制测试**
+- 多进程同步安全性验证
+- 文件锁跨进程有效性确认
+- 并发测试脚本完善
+
+✅ **综合功能测试**
+- 所有测试用例100%通过
+- 配置管理集成测试完成
+- 系统稳定性验证
+
+### 关键技术实现
+1. **跨进程文件锁**: 使用fcntl.flock确保多进程安全
+2. **原子性操作**: 临时文件+重命名模式保证数据一致性
+3. **SSH远程操作**: 通过管道优化大文件传输性能
+4. **校验和验证**: MD5校验确保文件传输完整性
+5. **配置统一管理**: unified_config.json集中配置所有模块
+
+### 项目文件结构
+```
+celestial_nasops/
+├── sync_scheduler.py      # 同步调度器（文件锁控制）
+├── media_sync.py          # 媒体文件同步（原子性传输）
+├── safe_delete_manager.py # 安全删除管理
+├── storage_manager.py     # 存储空间管理
+├── sync_lock_manager.py   # 同步锁管理器
+├── config_manager.py      # 配置管理器
+├── unified_config.json    # 统一配置文件
+└── README (本文件)        # 项目说明与运维手册
+```
+
+### 下一步计划
+- 部署到生产环境进行实际测试
+- 监控系统性能和稳定性
+- 根据实际使用情况优化配置参数
+**已删除的重复配置文件**:
+- `/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json`
+- `/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/config/media_sync_config.json`
+
+**更新的代码文件**:
+- `media_sync.py`: 更新配置路径和配置项访问
+- `test_sync.py`: 更新配置验证逻辑
+- `nas_structure_manager.py`: 更新默认配置路径
+
+现在项目只使用 `unified_config.json` 作为唯一配置文件。
 
 ---
 

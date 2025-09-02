@@ -327,7 +327,7 @@ class MediaSyncIntegrationTest:
     
     def _test_config_validation(self) -> bool:
         """测试配置文件验证"""
-        config_file = '/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json'
+        config_file = '/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json'
         
         if not os.path.exists(config_file):
             print(f"配置文件不存在: {config_file}")
@@ -338,7 +338,7 @@ class MediaSyncIntegrationTest:
                 config = json.load(f)
             
             # 验证必要的配置项
-            required_keys = ['local_storage', 'nas_server', 'sync_settings']
+            required_keys = ['local_settings', 'nas_settings', 'sync_settings']
             for key in required_keys:
                 if key not in config:
                     print(f"缺少配置项: {key}")

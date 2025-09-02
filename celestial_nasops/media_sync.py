@@ -28,6 +28,10 @@ from typing import List, Dict, Optional, Tuple
 # 添加项目根目录到Python路径
 sys.path.append('/home/celestial/dev/esdk-test/Edge-SDK')
 
+# 导入安全删除管理器和存储管理器
+from safe_delete_manager import SafeDeleteManager
+from storage_manager import StorageManager
+
 class MediaSyncManager:
     """媒体文件同步管理器"""
     
@@ -37,18 +41,30 @@ class MediaSyncManager:
         Args:
             config_path: 配置文件路径，默认使用项目配置文件
         """
-        self.config_path = config_path or '/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json'
+        self.config_path = config_path or '/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json'
         self.config = self._load_config()
         self.logger = self._setup_logging()
         
         # 从配置文件获取参数
-        self.local_media_path = self.config['local_storage']['media_path']
-        self.nas_host = self.config['nas_server']['host']
-        self.nas_username = self.config['nas_server']['username']
-        self.nas_base_path = self.config['nas_server']['remote_path']
-        self.max_retry = self.config['sync_settings']['max_retries']
-        self.enable_checksum = self.config['sync_settings']['verify_checksum']
+        self.local_media_path = self.config['local_settings']['media_path']
+        self.nas_host = self.config['nas_settings']['host']
+        self.nas_username = self.config['nas_settings']['username']
+        self.nas_base_path = self.config['nas_settings']['base_path']
+        self.max_retry = self.config['sync_settings']['max_retry_attempts']
+        self.enable_checksum = self.config['sync_settings']['enable_checksum']
         self.delete_after_sync = self.config['sync_settings']['delete_after_sync']
+        
+        # 初始化安全删除管理器
+        safe_delete_delay = self.config['sync_settings'].get('safe_delete_delay_minutes', 30)
+        self.safe_delete_manager = SafeDeleteManager(
+            nas_host=self.nas_host,
+            nas_username=self.nas_username,
+            delay_minutes=safe_delete_delay,
+            enable_checksum=self.enable_checksum
+        )
+        
+        # 初始化存储管理器
+        self.storage_manager = StorageManager(config_file=self.config_path)
         
     def _load_config(self) -> Dict:
         """加载配置文件
@@ -86,13 +102,34 @@ class MediaSyncManager:
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
         
         # 配置日志格式
+        import logging.handlers
+        handlers = []
+        
+        # 尝试创建文件日志处理器，如果失败则使用系统日志
+        try:
+            if os.getenv('DAEMON_MODE') == '1':
+                # 守护进程模式：只使用系统日志
+                syslog_handler = logging.handlers.SysLogHandler(address='/dev/log')
+                syslog_handler.setFormatter(logging.Formatter('media-sync-daemon: %(levelname)s - %(message)s'))
+                handlers.append(syslog_handler)
+            else:
+                # 普通模式：尝试使用文件和控制台日志
+                handlers.extend([
+                    logging.FileHandler(log_file, encoding='utf-8'),
+                    logging.StreamHandler(sys.stdout)
+                ])
+        except (OSError, PermissionError) as e:
+            # 如果无法创建文件日志，回退到系统日志
+            print(f"Warning: Cannot create log file {log_file}: {e}")
+            print("Falling back to system logging")
+            syslog_handler = logging.handlers.SysLogHandler(address='/dev/log')
+            syslog_handler.setFormatter(logging.Formatter('media-sync-daemon: %(levelname)s - %(message)s'))
+            handlers = [syslog_handler]
+        
         logging.basicConfig(
             level=getattr(logging, log_config['level']),
             format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file, encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
+            handlers=handlers
         )
         
         return logging.getLogger(__name__)
@@ -156,7 +193,7 @@ class MediaSyncManager:
             return f"{self.nas_base_path}/{now.year}/{now.month:02d}/{now.day:02d}/"
     
     def sync_file_to_nas(self, local_file_path: str) -> bool:
-        """同步单个文件到NAS
+        """同步单个文件到NAS（原子性传输）
         
         Args:
             local_file_path: 本地文件路径
@@ -168,7 +205,13 @@ class MediaSyncManager:
         remote_dir = self.get_remote_path(filename)
         remote_host_path = f"{self.nas_username}@{self.nas_host}:{remote_dir}"
         
-        self.logger.info(f"开始同步文件: {filename} -> {remote_host_path}")
+        # 生成临时文件名（添加.tmp后缀和时间戳）
+        timestamp = int(time.time() * 1000)  # 毫秒时间戳
+        temp_filename = f"{filename}.tmp.{timestamp}"
+        remote_temp_path = f"{remote_dir}{temp_filename}"
+        remote_final_path = f"{remote_dir}{filename}"
+        
+        self.logger.info(f"开始原子性同步文件: {filename} -> {remote_host_path}")
         
         # 计算本地文件校验和
         local_checksum = ""
@@ -178,32 +221,86 @@ class MediaSyncManager:
                 self.logger.error(f"无法计算本地文件校验和: {filename}")
                 return False
         
-        # 由于NAS系统限制rsync和scp，使用SSH管道传输文件
-        remote_file_path = f"{remote_dir}{filename}"
+        try:
+            # 1. 创建远程目录
+            if not self._create_remote_directory(remote_dir):
+                return False
+            
+            # 2. 传输文件到临时位置
+            if not self._transfer_file_to_temp(local_file_path, remote_temp_path):
+                return False
+            
+            # 3. 验证传输完整性（如果启用校验和）
+            if self.enable_checksum:
+                if not self._verify_remote_checksum(remote_temp_path, local_checksum):
+                    self.logger.error(f"临时文件校验失败: {temp_filename}")
+                    self._cleanup_remote_temp_file(remote_temp_path)
+                    return False
+                self.logger.info(f"临时文件校验成功: {temp_filename}")
+            
+            # 4. 原子性重命名（临时文件 -> 最终文件）
+            if not self._atomic_rename_remote_file(remote_temp_path, remote_final_path):
+                self._cleanup_remote_temp_file(remote_temp_path)
+                return False
+            
+            self.logger.info(f"文件原子性传输成功: {filename}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"文件传输异常: {filename}, 错误: {e}")
+            # 清理可能存在的临时文件
+            self._cleanup_remote_temp_file(remote_temp_path)
+            return False
+    
+    def _create_remote_directory(self, remote_dir: str) -> bool:
+        """创建远程目录
         
-        # 先创建远程目录
+        Args:
+            remote_dir: 远程目录路径
+            
+        Returns:
+            是否创建成功
+        """
         mkdir_cmd = [
             'ssh', f"{self.nas_username}@{self.nas_host}",
             f'mkdir -p {remote_dir}'
         ]
         
         try:
-            # 创建远程目录
-            mkdir_result = subprocess.run(
+            result = subprocess.run(
                 mkdir_cmd,
                 capture_output=True,
                 text=True,
                 timeout=30
             )
             
-            if mkdir_result.returncode != 0:
-                self.logger.error(f"创建远程目录失败: {mkdir_result.stderr}")
+            if result.returncode == 0:
+                return True
+            else:
+                self.logger.error(f"创建远程目录失败: {result.stderr}")
                 return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error("创建远程目录超时")
+            return False
+        except Exception as e:
+            self.logger.error(f"创建远程目录异常: {e}")
+            return False
+    
+    def _transfer_file_to_temp(self, local_file_path: str, remote_temp_path: str) -> bool:
+        """传输文件到远程临时位置
+        
+        Args:
+            local_file_path: 本地文件路径
+            remote_temp_path: 远程临时文件路径
             
-            # 使用SSH管道传输文件
-            transfer_cmd = f"cat '{local_file_path}' | ssh {self.nas_username}@{self.nas_host} 'cat > {remote_file_path}'"
-            
-            # 执行文件传输命令
+        Returns:
+            是否传输成功
+        """
+        # 使用SSH管道传输文件到临时位置
+        transfer_cmd = f"cat '{local_file_path}' | ssh {self.nas_username}@{self.nas_host} 'cat > {remote_temp_path}'"
+        
+        try:
             result = subprocess.run(
                 transfer_cmd,
                 shell=True,
@@ -213,28 +310,82 @@ class MediaSyncManager:
             )
             
             if result.returncode == 0:
-                self.logger.info(f"文件传输成功: {filename}")
-                
-                # 验证远程文件校验和（如果启用）
-                if self.enable_checksum:
-                    if self._verify_remote_checksum(remote_file_path, local_checksum):
-                        self.logger.info(f"文件校验成功: {filename}")
-                        return True
-                    else:
-                        self.logger.error(f"文件校验失败: {filename}")
-                        return False
-                else:
-                    return True
+                self.logger.debug(f"文件传输到临时位置成功: {os.path.basename(remote_temp_path)}")
+                return True
             else:
-                self.logger.error(f"文件传输失败: {result.stderr}")
+                self.logger.error(f"文件传输到临时位置失败: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            self.logger.error(f"文件传输超时: {filename}")
+            self.logger.error("文件传输到临时位置超时")
             return False
         except Exception as e:
-            self.logger.error(f"文件传输异常: {filename}, 错误: {e}")
+            self.logger.error(f"文件传输到临时位置异常: {e}")
             return False
+    
+    def _atomic_rename_remote_file(self, remote_temp_path: str, remote_final_path: str) -> bool:
+        """原子性重命名远程文件
+        
+        Args:
+            remote_temp_path: 远程临时文件路径
+            remote_final_path: 远程最终文件路径
+            
+        Returns:
+            是否重命名成功
+        """
+        rename_cmd = [
+            'ssh', f"{self.nas_username}@{self.nas_host}",
+            f'mv {remote_temp_path} {remote_final_path}'
+        ]
+        
+        try:
+            result = subprocess.run(
+                rename_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                self.logger.debug(f"文件原子性重命名成功: {os.path.basename(remote_final_path)}")
+                return True
+            else:
+                self.logger.error(f"文件原子性重命名失败: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error("文件原子性重命名超时")
+            return False
+        except Exception as e:
+            self.logger.error(f"文件原子性重命名异常: {e}")
+            return False
+    
+    def _cleanup_remote_temp_file(self, remote_temp_path: str):
+        """清理远程临时文件
+        
+        Args:
+            remote_temp_path: 远程临时文件路径
+        """
+        cleanup_cmd = [
+            'ssh', f"{self.nas_username}@{self.nas_host}",
+            f'rm -f {remote_temp_path}'
+        ]
+        
+        try:
+            result = subprocess.run(
+                cleanup_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                self.logger.debug(f"临时文件清理成功: {os.path.basename(remote_temp_path)}")
+            else:
+                self.logger.warning(f"临时文件清理失败: {result.stderr}")
+                
+        except Exception as e:
+            self.logger.warning(f"临时文件清理异常: {e}")
     
     def _verify_remote_checksum(self, remote_file_path: str, expected_checksum: str) -> bool:
         """验证远程文件校验和
@@ -320,17 +471,27 @@ class MediaSyncManager:
             for attempt in range(1, self.max_retry + 1):
                 self.logger.info(f"同步文件 {filename} (尝试 {attempt}/{self.max_retry})")
                 
+                # 获取远程文件路径和本地文件校验和
+                remote_dir = self.get_remote_path(filename)
+                remote_file_path = f"{remote_dir}{filename}"
+                local_checksum = None
+                if self.enable_checksum:
+                    local_checksum = self.get_file_checksum(file_path)
+                
                 if self.sync_file_to_nas(file_path):
                     sync_success = True
                     success_count += 1
                     
-                    # 同步成功后删除本地文件（如果配置启用）
+                    # 同步成功后安排延迟删除本地文件（如果配置启用）
                     if self.delete_after_sync:
-                        try:
-                            os.remove(file_path)
-                            self.logger.info(f"本地文件已删除: {filename}")
-                        except Exception as e:
-                            self.logger.error(f"删除本地文件失败: {filename}, 错误: {e}")
+                        if self.safe_delete_manager.schedule_delete(
+                            local_file_path=file_path,
+                            remote_file_path=remote_file_path,
+                            local_checksum=local_checksum
+                        ):
+                            self.logger.info(f"已安排延迟删除: {filename}")
+                        else:
+                            self.logger.error(f"安排延迟删除失败: {filename}")
                     
                     break
                 else:
@@ -343,7 +504,79 @@ class MediaSyncManager:
                 self.logger.error(f"文件同步最终失败: {filename}")
         
         self.logger.info(f"同步完成 - 成功: {success_count}, 失败: {failed_count}")
+        
+        # 处理待删除任务
+        if self.delete_after_sync:
+            delete_success, delete_failed = self.safe_delete_manager.process_pending_deletes()
+            if delete_success > 0 or delete_failed > 0:
+                self.logger.info(f"删除任务处理完成 - 成功: {delete_success}, 失败: {delete_failed}")
+        
         return {'success': success_count, 'failed': failed_count}
+    
+    def process_pending_deletes(self) -> Dict[str, int]:
+        """处理待删除任务
+        
+        Returns:
+            删除结果统计 {'success': 成功数量, 'failed': 失败数量}
+        """
+        if not self.delete_after_sync:
+            self.logger.info("未启用同步后删除，跳过删除任务处理")
+            return {'success': 0, 'failed': 0}
+        
+        success, failed = self.safe_delete_manager.process_pending_deletes()
+        return {'success': success, 'failed': failed}
+    
+    def get_delete_status(self) -> Dict:
+        """获取删除管理器状态
+        
+        Returns:
+            删除管理器状态信息
+        """
+        if not self.delete_after_sync:
+            return {'enabled': False}
+        
+        status = self.safe_delete_manager.get_status_summary()
+        status['enabled'] = True
+        return status
+    
+    def check_storage_space(self) -> Dict:
+        """检查存储空间状态
+        
+        Returns:
+            存储空间状态信息
+        """
+        try:
+            return self.storage_manager.check_storage_space()
+        except Exception as e:
+            self.logger.error(f"检查存储空间失败: {e}")
+            return {'error': str(e)}
+    
+    def cleanup_storage(self, force: bool = False) -> Dict:
+        """清理存储空间
+        
+        Args:
+            force: 是否强制清理，忽略阈值检查
+            
+        Returns:
+            清理结果信息
+        """
+        try:
+            return self.storage_manager.cleanup_storage(force=force)
+        except Exception as e:
+            self.logger.error(f"清理存储空间失败: {e}")
+            return {'error': str(e)}
+    
+    def get_storage_status(self) -> Dict:
+        """获取存储管理器状态
+        
+        Returns:
+            存储管理器状态信息
+        """
+        try:
+            return self.storage_manager.get_status_summary()
+        except Exception as e:
+            self.logger.error(f"获取存储状态失败: {e}")
+            return {'error': str(e)}
 
 def main():
     """主函数"""

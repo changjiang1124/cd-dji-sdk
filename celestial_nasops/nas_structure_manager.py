@@ -64,7 +64,7 @@ class NASStructureManager:
             配置字典
         """
         if config_file is None:
-            config_file = '/home/celestial/dev/esdk-test/Edge-SDK/media_sync_config.json'
+            config_file = '/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json'
         
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
@@ -92,19 +92,44 @@ class NASStructureManager:
         Returns:
             配置好的日志记录器
         """
-        log_dir = '/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs'
-        os.makedirs(log_dir, exist_ok=True)
+        import logging.handlers
         
-        log_file = os.path.join(log_dir, 'nas_structure_manager.log')
-        
-        logging.basicConfig(
-            level=getattr(logging, self.config['logging']['level']),
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file, encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
+        # 检查是否在守护进程模式下运行
+        if os.getenv('DAEMON_MODE') == '1':
+            # 守护进程模式：只使用系统日志
+            logging.basicConfig(
+                level=getattr(logging, self.config['logging']['level']),
+                format='nas-structure-manager: %(levelname)s - %(message)s',
+                handlers=[
+                    logging.handlers.SysLogHandler(address='/dev/log')
+                ]
+            )
+        else:
+            # 普通模式：尝试使用文件和控制台日志
+            try:
+                log_dir = '/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs'
+                os.makedirs(log_dir, exist_ok=True)
+                
+                log_file = os.path.join(log_dir, 'nas_structure_manager.log')
+                
+                logging.basicConfig(
+                    level=getattr(logging, self.config['logging']['level']),
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler(log_file, encoding='utf-8'),
+                        logging.StreamHandler(sys.stdout)
+                    ]
+                )
+            except (OSError, PermissionError) as e:
+                # 如果无法创建文件日志，回退到系统日志
+                print(f"Warning: Cannot create log file: {e}")
+                logging.basicConfig(
+                    level=getattr(logging, self.config['logging']['level']),
+                    format='nas-structure-manager: %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.handlers.SysLogHandler(address='/dev/log')
+                    ]
+                )
         
         return logging.getLogger('NASStructureManager')
     

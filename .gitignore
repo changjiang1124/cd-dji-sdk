@@ -11,3 +11,7 @@ nohup.*
 test_logrotate.sh
 
 **/__pycache__
+
+
+**.log
+test_**
