@@ -17,6 +17,7 @@
   
   "local_settings": {
     "media_path": "/data/temp/dji/media/",
+    "media_directory": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/media",
     "temp_path": "/tmp/media",
     "log_path": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs",
     "description": "本地存储路径配置"
@@ -34,6 +35,20 @@
     "temp_file_prefix": ".tmp_",
     "verify_remote_before_delete": true,
     "description": "同步行为配置"
+  },
+  
+  "transfer": {
+    "scan_interval": 300,
+    "batch_size": 10,
+    "description": "传输控制配置 - 用于media_finding_daemon"
+  },
+  
+  "nas": {
+    "host": "192.168.200.103",
+    "username": "edge_sync",
+    "password": "",
+    "destination_path": "/volume1/homes/edge_sync/drone_media",
+    "description": "NAS传输目标配置"
   },
   
   "file_organization": {
@@ -57,7 +72,7 @@
     "critical_threshold_percent": 90,
     "cleanup_target_percent": 70,
     "check_interval_minutes": 60,
-    "status_file": "storage_status.json",
+    "status_file": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/storage_status.json",
     "enable_auto_cleanup": true,
     "description": "存储空间管理配置",
     "cleanup_rules": [
@@ -95,6 +110,7 @@
   "logging": {
     "level": "INFO",
     "log_file": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/media_sync.log",
+    "media_finding_log": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/media_finding.log",
     "max_file_size_mb": 10,
     "backup_count": 5,
     "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -127,6 +143,34 @@
     "backup_interval_hours": 24,
     "cleanup_old_records_days": 90,
     "description": "数据库配置 - 用于跟踪媒体文件传输状态"
+  },
+  
+  "file_sync": {
+    "filter_strategy": "extended",
+    "custom_extensions": [
+      ".mp4", ".jpg", ".txt", ".las"
+    ],
+    "exclude_patterns": [
+      ".*",
+      ".tmp_*",
+      "*.tmp",
+      ".DS_Store",
+      "Thumbs.db",
+      "desktop.ini"
+    ],
+    "description": "文件同步过滤配置 - 支持media_only/extended/all_files/custom策略"
+  },
+  
+  "dock_info_manager": {
+    "check_interval_seconds": 10,
+    "batch_size": 5,
+    "max_retry_attempts": 3,
+    "retry_delay_seconds": 1,
+    "connection_pool_size": 2,
+    "enable_connection_reuse": true,
+    "sqlite_busy_timeout_ms": 5000,
+    "enable_detailed_logging": true,
+    "description": "dock_info_manager配置 - 用于优化数据库并发访问和性能"
   },
   
   "smoke_test": {

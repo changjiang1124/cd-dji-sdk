@@ -65,8 +65,14 @@ public:
     /**
      * @brief 构造函数
      * @param db_path 数据库文件路径
+     * @param max_retry_attempts 最大重试次数
+     * @param retry_delay_seconds 重试延迟秒数
+     * @param busy_timeout_ms SQLITE_BUSY超时毫秒数
      */
-    explicit MediaStatusDB(const std::string& db_path);
+    explicit MediaStatusDB(const std::string& db_path, 
+                          int max_retry_attempts = 3,
+                          int retry_delay_seconds = 1,
+                          int busy_timeout_ms = 30000);
     
     /**
      * @brief 析构函数
@@ -164,11 +170,19 @@ public:
 
 private:
     /**
-     * @brief 执行SQL语句
+     * @brief 执行SQL语句（带重试机制）
      * @param sql SQL语句
      * @return true 成功，false 失败
      */
     bool ExecuteSQL(const std::string& sql);
+    
+    /**
+     * @brief 执行SQL语句（带重试机制的内部实现）
+     * @param sql SQL语句
+     * @param retry_count 当前重试次数
+     * @return true 成功，false 失败
+     */
+    bool ExecuteSQLWithRetry(const std::string& sql, int retry_count = 0);
     
     /**
      * @brief 准备SQL语句
@@ -210,6 +224,11 @@ private:
     std::mutex db_mutex_;           // 数据库操作互斥锁
     std::string last_error_;        // 最后一次错误信息
     bool initialized_;              // 初始化状态
+    
+    // 重试机制配置
+    int max_retry_attempts_;        // 最大重试次数
+    int retry_delay_seconds_;       // 重试延迟秒数
+    int busy_timeout_ms_;           // SQLITE_BUSY超时毫秒数
 };
 
 } // namespace celestial

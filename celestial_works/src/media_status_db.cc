@@ -9,13 +9,20 @@
 #include <iostream>
 #include <sstream>
 #include <chrono>
+#include <thread>
 #include <iomanip>
 #include <cstring>
 
 namespace celestial {
 
-MediaStatusDB::MediaStatusDB(const std::string& db_path)
-    : db_path_(db_path), db_(nullptr), initialized_(false) {
+MediaStatusDB::MediaStatusDB(const std::string& db_path, 
+                             int max_retry_attempts,
+                             int retry_delay_seconds,
+                             int busy_timeout_ms)
+    : db_path_(db_path), db_(nullptr), initialized_(false),
+      max_retry_attempts_(max_retry_attempts),
+      retry_delay_seconds_(retry_delay_seconds),
+      busy_timeout_ms_(busy_timeout_ms) {
 }
 
 MediaStatusDB::~MediaStatusDB() {
@@ -45,6 +52,64 @@ bool MediaStatusDB::Initialize() {
     
     // 设置WAL模式以提高并发性能
     if (!ExecuteSQL("PRAGMA journal_mode = WAL;")) {
+        Close();
+        return false;
+    }
+    
+    // 设置SQLITE_BUSY超时
+    sqlite3_busy_timeout(db_, busy_timeout_ms_);
+    
+    // 设置同步模式为NORMAL以提高性能
+    if (!ExecuteSQL("PRAGMA synchronous = NORMAL;")) {
+        Close();
+        return false;
+    }
+    
+    // 设置缓存大小
+    if (!ExecuteSQL("PRAGMA cache_size = 10000;")) {
+        Close();
+        return false;
+    }
+    
+    // 创建媒体传输状态表
+    const char* create_table_sql = R"(
+        CREATE TABLE IF NOT EXISTS media_transfer_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT UNIQUE NOT NULL,
+            file_name TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            file_hash TEXT,
+            download_status TEXT NOT NULL DEFAULT 'pending',
+            transfer_status TEXT NOT NULL DEFAULT 'pending',
+            download_start_time TEXT,
+            download_end_time TEXT,
+            transfer_start_time TEXT,
+            transfer_end_time TEXT,
+            download_retry_count INTEGER DEFAULT 0,
+            transfer_retry_count INTEGER DEFAULT 0,
+            last_error_message TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    )";
+    
+    if (!ExecuteSQL(create_table_sql)) {
+        Close();
+        return false;
+    }
+    
+    // 创建索引以提高查询性能
+    if (!ExecuteSQL("CREATE INDEX IF NOT EXISTS idx_file_path ON media_transfer_status(file_path);")) {
+        Close();
+        return false;
+    }
+    
+    if (!ExecuteSQL("CREATE INDEX IF NOT EXISTS idx_download_status ON media_transfer_status(download_status);")) {
+        Close();
+        return false;
+    }
+    
+    if (!ExecuteSQL("CREATE INDEX IF NOT EXISTS idx_transfer_status ON media_transfer_status(transfer_status);")) {
         Close();
         return false;
     }
@@ -413,20 +478,38 @@ int MediaStatusDB::CleanupOldRecords(int days_old) {
 }
 
 bool MediaStatusDB::ExecuteSQL(const std::string& sql) {
+    return ExecuteSQLWithRetry(sql, 0);
+}
+
+bool MediaStatusDB::ExecuteSQLWithRetry(const std::string& sql, int retry_count) {
     char* error_msg = nullptr;
     int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &error_msg);
     
-    if (rc != SQLITE_OK) {
-        std::string error = "SQL执行失败: ";
-        if (error_msg) {
-            error += error_msg;
-            sqlite3_free(error_msg);
-        }
-        SetError(error);
-        return false;
+    if (rc == SQLITE_OK) {
+        return true;
     }
     
-    return true;
+    // 如果是SQLITE_BUSY或SQLITE_LOCKED错误，且还有重试机会
+    if ((rc == SQLITE_BUSY || rc == SQLITE_LOCKED) && retry_count < max_retry_attempts_) {
+        if (error_msg) {
+            sqlite3_free(error_msg);
+        }
+        
+        // 等待一段时间后重试
+        std::this_thread::sleep_for(std::chrono::seconds(retry_delay_seconds_));
+        return ExecuteSQLWithRetry(sql, retry_count + 1);
+    }
+    
+    // 记录错误信息
+    std::string error = "SQL执行失败 (重试" + std::to_string(retry_count) + "次): ";
+    if (error_msg) {
+        error += error_msg;
+        sqlite3_free(error_msg);
+    } else {
+        error += "错误代码: " + std::to_string(rc);
+    }
+    SetError(error);
+    return false;
 }
 
 bool MediaStatusDB::PrepareStatement(const std::string& sql, sqlite3_stmt** stmt) {

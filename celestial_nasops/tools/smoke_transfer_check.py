@@ -289,6 +289,139 @@ def check_daemon_status(service_name: str = "media-sync-daemon") -> Tuple[bool, 
         return False, f"无法检查服务状态: {e}"
 
 
+def check_daemon_logs(service_name: str = "media-sync-daemon", minutes: int = 10) -> List[str]:
+    """检查守护进程最近的错误日志
+    
+    参数：
+        service_name: 服务名称
+        minutes: 检查最近多少分钟的日志
+    返回：
+        错误日志列表
+    """
+    try:
+        res = subprocess.run(
+            [
+                "journalctl", 
+                "-u", service_name, 
+                "--since", f"{minutes} min ago",
+                "--no-pager",
+                "-q"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30
+        )
+        
+        if res.returncode != 0:
+            return [f"无法获取日志: {res.stderr.strip()}"]
+        
+        # 过滤错误和警告日志
+        error_lines = []
+        for line in res.stdout.split('\n'):
+            line = line.strip()
+            if line and any(keyword in line.lower() for keyword in ['error', 'failed', 'exception', 'critical']):
+                error_lines.append(line)
+        
+        return error_lines
+    except subprocess.TimeoutExpired:
+        return ["获取日志超时"]
+    except Exception as e:
+        return [f"检查日志失败: {e}"]
+
+
+def check_daemon_prerequisites() -> Tuple[bool, List[str]]:
+    """检查守护进程运行的前置条件
+    
+    返回：
+        (是否满足条件, 问题列表)
+    """
+    issues = []
+    
+    # 1. 检查守护进程状态
+    daemon_running, daemon_msg = check_daemon_status("media-sync-daemon")
+    if not daemon_running:
+        issues.append(f"守护进程未运行: {daemon_msg}")
+    
+    # 2. 检查守护进程服务文件
+    service_file = "/etc/systemd/system/media-sync-daemon.service"
+    if not os.path.exists(service_file):
+        issues.append(f"守护进程服务文件不存在: {service_file}")
+    
+    # 3. 检查守护进程日志是否有错误
+    recent_errors = check_daemon_logs("media-sync-daemon", minutes=10)
+    if recent_errors:
+        issues.append(f"守护进程最近有错误日志: {len(recent_errors)} 条")
+        # 只显示最近的3条错误，避免输出过长
+        for error in recent_errors[:3]:
+            issues.append(f"  - {error}")
+        if len(recent_errors) > 3:
+            issues.append(f"  - ... 还有 {len(recent_errors) - 3} 条错误")
+    
+    # 4. 检查配置文件是否存在
+    config_file = f"{PROJECT_ROOT}/celestial_nasops/unified_config.json"
+    if not os.path.exists(config_file):
+        issues.append(f"配置文件不存在: {config_file}")
+    
+    return len(issues) == 0, issues
+
+
+def provide_daemon_guidance(issues: List[str]) -> None:
+    """提供守护进程问题的解决指导"""
+    print("\n🔧 守护进程问题解决指导:")
+    
+    for issue in issues:
+        print(f"  ❌ {issue}")
+    
+    print("\n建议的解决步骤:")
+    print("  1. 检查服务状态: sudo systemctl status media-sync-daemon")
+    print("  2. 查看服务日志: journalctl -u media-sync-daemon --since '10 min ago'")
+    print("  3. 重启服务: sudo systemctl restart media-sync-daemon")
+    print("  4. 如果服务未安装，运行: cd celestial_nasops && sudo ./install_daemon.sh")
+    print("  5. 检查配置文件: cat celestial_nasops/unified_config.json")
+
+
+def interactive_daemon_check(args) -> bool:
+    """交互式守护进程检查
+    
+    参数：
+        args: 命令行参数对象
+    返回：
+        是否继续执行测试
+    """
+    print("正在检查守护进程状态...")
+    
+    prerequisites_ok, issues = check_daemon_prerequisites()
+    
+    if prerequisites_ok:
+        print("✅ 守护进程状态正常，可以继续执行烟雾测试")
+        return True
+    
+    print("\n⚠️  发现守护进程问题:")
+    provide_daemon_guidance(issues)
+    
+    # 检查是否有 --force 参数
+    if hasattr(args, 'force') and args.force:
+        print("\n--force 参数已指定，强制继续执行测试")
+        return True
+    
+    # 交互式询问
+    while True:
+        try:
+            choice = input("\n是否继续执行测试? (y/n/r) [y=继续, n=退出, r=重新检查]: ").lower().strip()
+            if choice in ['y', 'yes', '']:
+                return True
+            elif choice in ['n', 'no']:
+                return False
+            elif choice in ['r', 'recheck']:
+                return interactive_daemon_check(args)  # 递归重新检查
+            else:
+                print("请输入 y, n 或 r")
+        except (EOFError, KeyboardInterrupt):
+            print("\n用户中断操作")
+            return False
+
+
 def check_database_health(db_path: str) -> Tuple[bool, Dict[str, any]]:
     """检查数据库健康状态
     
@@ -522,6 +655,11 @@ def parse_args(cfg: Dict = None) -> argparse.Namespace:
         action="store_true",
         help="跳过系统诊断检查，直接执行烟雾测试",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="强制执行测试，即使守护进程检查或系统诊断发现问题",
+    )
     return parser.parse_args()
 
 
@@ -542,9 +680,32 @@ def main() -> int:
     else:
         wait_minutes = args.wait_minutes
 
+    print("==== Smoke Test (media-sync-daemon) ====")
+    print("-" * 50)
+    
+    # 阶段1: 守护进程预检查
+    if not args.skip_diagnostics:
+        print("\n=== 阶段1: 守护进程预检查 ===")
+        daemon_check_result = interactive_daemon_check(args)
+        
+        if not daemon_check_result and not args.force:
+            print("\n✗ 守护进程预检查失败，测试终止")
+            print("提示: 使用 --force 参数可强制执行测试")
+            return 1
+        elif not daemon_check_result and args.force:
+            print("\n⚠️  守护进程预检查失败，但使用 --force 参数继续执行")
+
     filename = generate_test_filename(prefix=args.prefix, ext=args.ext)
     local_path, actual_size = write_local_file(local_dir, filename, size_bytes=args.size_bytes)
     remote_path = expected_remote_path(cfg, filename)
+    
+    print(f"\n=== 阶段2: 测试文件准备 ===")
+    print(f"Local media dir: {local_dir}")
+    print(f"Local file     : {local_path}")
+    print(f"SSH target     : {ssh_target}")
+    if not args.no_remote_check:
+        print(f"Expected remote: {remote_path}")
+    print(f"Wait minutes   : {wait_minutes} (poll every {args.poll_interval}s)")
     
     # 初始化数据库连接
     db = None
@@ -580,7 +741,7 @@ def main() -> int:
                         transfer_status='pending'
                     )
                     if success:
-                        print(f"已将测试文件记录插入数据库并标记为下载完成: {filename}")
+                        print(f"✓ 已将测试文件记录插入数据库并标记为下载完成: {filename}")
                     else:
                         print(f"警告: 无法将测试文件记录插入数据库: {filename}")
                 else:
@@ -592,7 +753,7 @@ def main() -> int:
 
     # 运行系统诊断检查
     if not args.skip_diagnostics:
-        print("正在运行系统诊断检查...")
+        print("\n=== 阶段3: 系统诊断检查 ===")
         diagnostic_results = run_system_diagnostics(cfg)
         print_diagnostic_report(diagnostic_results)
         
@@ -610,18 +771,20 @@ def main() -> int:
                     print(f"关闭数据库连接时出错: {e}")
             return 0 if diagnostic_results["overall_health"] else 1
         
-        # 如果诊断发现严重问题，警告用户
-        if not diagnostic_results["overall_health"]:
-            print("\n⚠️  警告: 系统诊断发现问题，烟雾测试可能失败")
-            print("建议先解决上述问题后再运行烟雾测试\n")
+        # 检查诊断结果
+        if not diagnostic_results["overall_health"] and not args.force:
+            print("\n✗ 系统诊断发现问题，测试终止")
+            print("提示: 使用 --force 参数可强制执行测试")
+            if db:
+                try:
+                    db.close()
+                except Exception as e:
+                    print(f"关闭数据库连接时出错: {e}")
+            return 1
+        elif not diagnostic_results["overall_health"] and args.force:
+            print("\n⚠️  系统诊断发现问题，但使用 --force 参数继续执行")
 
-    print("==== Smoke Test (media-sync-daemon) ====")
-    print(f"Local media dir: {local_dir}")
-    print(f"Local file     : {local_path}")
-    print(f"SSH target     : {ssh_target}")
-    if not args.no_remote_check:
-        print(f"Expected remote: {remote_path}")
-    print(f"Wait minutes   : {wait_minutes} (poll every {args.poll_interval}s)\n")
+    print("\n=== 阶段4: 守护进程监控与验证 ===")
 
     # 轮询等待：优先检查远端出现；如果配置 delete_after_sync 为 True，则本地文件应被删除
     deadline = time.time() + wait_minutes * 60
@@ -654,7 +817,9 @@ def main() -> int:
                 success = not local_exist
 
         if success:
-            print("\nSUCCESS: Daemon appears to be working as expected.")
+            print("\n✓ 烟雾测试成功！")
+            print("  - 文件已成功传输到远程")
+            print("  - 本地文件已被清理")
             # 清理数据库连接
             if db:
                 try:
@@ -665,9 +830,15 @@ def main() -> int:
 
         time.sleep(args.poll_interval)
 
-    print("\nTIMEOUT: Did not observe expected transfer within the allotted time.")
-    print("Hints:")
-    print("- 确认 systemd 服务已运行：sudo systemctl status media-sync-daemon (仅提示，不在本脚本中执行)")
+    print(f"\n✗ 烟雾测试超时（{wait_minutes}分钟）")
+    print("最终状态:")
+    if not args.no_remote_check:
+        remote_exists = remote_file_exists(ssh_target, remote_path)
+        print(f"  - 远程文件: {'存在' if remote_exists else '不存在'}")
+    local_exists = local_file_exists(local_path)
+    print(f"  - 本地文件: {'存在' if local_exists else '已删除'}")
+    print("\nHints:")
+    print("- 确认 systemd 服务已运行：sudo systemctl status media-sync-daemon")
     print("- 查看日志：journalctl -u media-sync-daemon --since '30 min ago' -n 200")
     print("- 也可手动触发一次：python celestial_nasops/sync_scheduler.py --once")
     

@@ -1,0 +1,43 @@
+[Unit]
+Description=Media Finding Daemon - 统一同步架构优化方案
+Documentation=https://github.com/celestial/Edge-SDK
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=celestial
+Group=celestial
+WorkingDirectory=/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
+ExecStart=/usr/bin/python3 /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/media_finding_daemon.py
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 环境变量
+Environment=PYTHONPATH=/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
+Environment=PYTHONUNBUFFERED=1
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全设置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs
+ReadWritePaths=/home/celestial/dev/esdk-test/Edge-SDK/celestial_works
+ReadWritePaths=/data/temp/dji
+
+# 日志设置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=media-finding-daemon
+
+[Install]
+WantedBy=multi-user.target

@@ -22,14 +22,13 @@ from pathlib import Path
 class ConfigManager:
     """统一配置管理器"""
     
-    _instance = None
-    _config_cache = None
+    # 取消单例共享，允许多实例使用
+    # _instance = None
+    # _config_cache = None
     
     def __new__(cls, config_file: str = None):
-        """单例模式实现"""
-        if cls._instance is None:
-            cls._instance = super(ConfigManager, cls).__new__(cls)
-        return cls._instance
+        """创建新实例（不再使用单例）"""
+        return super(ConfigManager, cls).__new__(cls)
     
     def __init__(self, config_file: str = None):
         """初始化配置管理器
@@ -37,11 +36,9 @@ class ConfigManager:
         Args:
             config_file: 配置文件路径，默认使用unified_config.json
         """
-        if hasattr(self, '_initialized'):
-            return
-            
-        self._initialized = True
+        # 始终允许重新初始化以便测试隔离
         self.logger = logging.getLogger('ConfigManager')
+        self._config_cache = None
         
         # 确定配置文件路径
         if config_file is None:

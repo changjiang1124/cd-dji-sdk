@@ -50,5 +50,37 @@ note we are using /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unifie
 
 ---
 ===
+**DONE**
 for the smoke test, should you check daemon processes whether they are existing or not? this could be an obvious test items before actually generate test files and waiting for the transfer to complete.
 the db could be locked due to two daemon? is there a risk? how to solve it? do we need to give up sqlite for other solutions?
+
+---
+===
+generate a shell script for to make dock_info_manager effect and restart daemon when changed. e.g. if i changed the interval in configuration, and need to recompile the cc code, and restart the daemon to make it work. you can add some steps you think is necessary. the name and purpose is to deploy_dock_monitor.sh 
+
+===
+want to have a smoke test, to insert mock up records and files in db and media location, then wait for the media_sync daemon to transfer them, delete them and change the record status in the db. might need to pending for some minutes. 
+
+
+===
+---WIP---
+1. 你用到了两个方案文件，请合并到同一个文件里，这样可以线性追踪 /home/celestial/dev/esdk-test/Edge-SDK/plans/database_access_architecture_optimization.md ; /home/celestial/dev/esdk-test/Edge-SDK/plans/sync_scheduler_file_monitoring_implementation.md
+2. 请明确 edge->nas 的时候，要记录过程在 DB，并先读取 DB 来判断是否传输过。具体如下:
+    a. 发现文件后，去DB 看下这个文件是否存在（通过文件名加 hash，这样准确点，但是 hash 30G 的文件会不会比较慢？）如果文件存在，则不管；如果文件不存在，则加入新的记录，并标记为 pending（待处理）
+    b. 浏览 DB，查看 pending 的文件，然后去开始传输，并在开始后，状态标记 pending -> transfering;
+    c. 传输完毕后，状态标记 transfering -> transferred;
+
+    这样的传输是不是线性的而不是异步的？做成异步的好处当然是比较及时能发现更新 DB，但是坏处就是又会出现多个进程读写数据库的并发问题，可能造成锁；而且即便开始传输，也会抢带宽，实际效果并不好。你怎么建议？
+
+--
+
+since we are using the new media_finding_daemon.py, what should we do with the original media_finding_daemon.py? should we keep it as it is, or just delete it? as well as 
+**服务位置**: `/etc/systemd/system/media-sync-daemon.service`  
+**主程序**: `celestial_nasops/sync_scheduler.py`  
+**核心模块**: `celestial_nasops/media_sync.py`
+
+---
+- [x] help me update how-it-works.md regarding the updates.
+
+---
+rsync.service 在 daemon 里是已经被 media_finding_daemon.service 的能力替换掉了吗？如果是，那么 rsync.service 就可以被删除了。所以 media_finding_daemon.service 是可以同步文件传输的对吧。

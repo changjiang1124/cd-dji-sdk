@@ -23,8 +23,9 @@ LimitNPROC=4096
 
 # 安全设置
 NoNewPrivileges=true
-ProtectSystem=false
+ProtectSystem=strict
 ProtectHome=false
+ReadWritePaths=/data/temp/dji/media /home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops
 
 [Install]
 WantedBy=multi-user.target

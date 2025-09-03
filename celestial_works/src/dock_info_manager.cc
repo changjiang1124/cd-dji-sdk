@@ -37,11 +37,12 @@
 
 // 自定义数据库操作类
 #include "media_status_db.h"
+#include "config_manager.h"
 
 using namespace edge_sdk;
 using namespace celestial;
 
-// 全局数据库实例
+// 全局数据库实例（将在main函数中初始化配置参数）
 std::unique_ptr<MediaStatusDB> g_media_db = nullptr;
 
 /**
@@ -279,13 +280,19 @@ edge_sdk::ErrorCode OnMediaFileUpdate(const edge_sdk::MediaFile& file) {
     
     // 首先在数据库中记录新文件
     if (g_media_db && !g_media_db->FileExists(file.file_path)) {
-        g_media_db->InsertMediaFile(file.file_path, file.file_name, file.file_size);
-        INFO("✓ 媒体文件已记录到数据库: %s", file.file_name.c_str());
+        if (g_media_db->InsertMediaFile(file.file_path, file.file_name, file.file_size)) {
+            INFO("✓ 媒体文件已记录到数据库: %s", file.file_name.c_str());
+        } else {
+            ERROR("数据库插入失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
+            return edge_sdk::ErrorCode::kErrorSystemError;
+        }
     }
     
     // 更新下载状态为正在下载
     if (g_media_db) {
-        g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::DOWNLOADING, "");
+        if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::DOWNLOADING, "")) {
+            ERROR("更新下载状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
+        }
     }
     
     // 下载并保存媒体文件到/data/temp/dji/media/目录
@@ -299,12 +306,28 @@ edge_sdk::ErrorCode OnMediaFileUpdate(const edge_sdk::MediaFile& file) {
                 bool saved = SaveMediaFileToDirectory(file.file_name, file_data, file.file_path);
                 if (saved) {
                     INFO("✓ 媒体文件已下载并保存: %s", file.file_name.c_str());
+                    // 更新数据库状态为下载成功
+                    if (g_media_db) {
+                        if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::COMPLETED, "")) {
+                            ERROR("更新下载完成状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
+                        }
+                    }
+                } else {
+                    ERROR("保存媒体文件失败: %s", file.file_name.c_str());
+                    // 更新数据库状态为下载失败
+                    if (g_media_db) {
+                        if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "保存文件失败")) {
+                            ERROR("更新下载失败状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
+                        }
+                    }
                 }
             } else {
                 ERROR("读取媒体文件内容失败: %s", file.file_name.c_str());
                 // 更新数据库状态为下载失败
                 if (g_media_db) {
-                    g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "读取文件内容失败");
+                    if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "读取文件内容失败")) {
+                        ERROR("更新下载失败状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
+                    }
                 }
             }
             reader->DeInit();
@@ -312,7 +335,9 @@ edge_sdk::ErrorCode OnMediaFileUpdate(const edge_sdk::MediaFile& file) {
             ERROR("创建媒体文件读取器失败: %s", file.file_name.c_str());
             // 更新数据库状态为下载失败
             if (g_media_db) {
-                g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "创建文件读取器失败");
+                if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "创建文件读取器失败")) {
+                    ERROR("更新下载失败状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
+                }
             }
         }
     }
@@ -370,15 +395,17 @@ void MonitorMediaFiles() {
 bool InitializeDatabase() {
     INFO("=== 初始化SQLite数据库 ===");
     
-    // 创建数据库实例
-    g_media_db = std::make_unique<MediaStatusDB>("/data/temp/dji/media_status.db");
+    if (!g_media_db) {
+        ERROR("数据库实例未创建");
+        return false;
+    }
     
     if (!g_media_db->Initialize()) {
         ERROR("数据库初始化失败: %s", g_media_db->GetLastError().c_str());
         return false;
     }
     
-    INFO("✓ SQLite数据库初始化成功");
+    INFO("✓ SQLite数据库初始化成功（支持重试机制）");
     
     // 显示数据库统计信息
     int total, downloaded, transferred, failed;
@@ -393,9 +420,22 @@ bool InitializeDatabase() {
 /**
  * @brief 主函数
  */
-int main(int argc, char** argv) {
-    INFO("=== DJI 机场信息管理器启动 ===");
-
+int main() {
+    INFO("=== 机场信息管理器启动 ===");
+    
+    // 加载配置文件
+    auto& config_manager = ConfigManager::getInstance();
+    config_manager.loadConfig();
+    const auto& dock_config = config_manager.getDockInfoManagerConfig();
+    
+    // 使用配置参数初始化数据库实例
+    g_media_db = std::make_unique<MediaStatusDB>(
+        "/data/temp/dji/media_status.db",
+        dock_config.max_retry_attempts,
+        dock_config.retry_delay_seconds,
+        dock_config.sqlite_busy_timeout_ms
+    );
+    
     // 初始化数据库
     if (!InitializeDatabase()) {
         ERROR("数据库初始化失败，程序退出");
@@ -437,11 +477,11 @@ int main(int argc, char** argv) {
     
     int monitor_count = 0;
     while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::this_thread::sleep_for(std::chrono::seconds(dock_config.check_interval_seconds));
         monitor_count++;
-        INFO("系统运行正常，继续监控中... (第%d次检查)", monitor_count);
+        INFO("系统运行正常，继续监控中... (第%d次检查，间隔%d秒)", monitor_count, dock_config.check_interval_seconds);
         
-        // 每5秒检查一次媒体文件并记录到简洁日志
+        // 按配置间隔检查媒体文件并记录到简洁日志
         if (media_manager) {
             auto reader = media_manager->CreateMediaFilesReader();
             if (reader) {

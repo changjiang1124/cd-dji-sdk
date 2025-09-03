@@ -1,0 +1,11 @@
+[
+  {
+    "local_file_path": "/data/temp/dji/media/smoke_test_1756819720.txt",
+    "remote_file_path": "/volume1/homes/edge_sync/drone_media/2025/09/02/smoke_test_1756819720.txt",
+    "local_checksum": "f69128322c87e44c75c2c14df5ac200e",
+    "scheduled_time": 1756821601.8973749,
+    "retry_count": 0,
+    "max_retries": 3,
+    "created_time": 1756819801.8973944
+  }
+]
