@@ -98,12 +98,14 @@ class MediaFindingDaemon:
     def _load_filter_config(self):
         """加载文件过滤配置"""
         self.filter_strategy = self.config_manager.get('file_sync.filter_strategy', 'extended')
-        self.custom_extensions = set(self.config_manager.get('file_sync.custom_extensions', []))
+        # 将自定义扩展名转换为小写，确保不区分大小写
+        custom_exts = self.config_manager.get('file_sync.custom_extensions', [])
+        self.custom_extensions = set(ext.lower() for ext in custom_exts)
         self.exclude_patterns = self.config_manager.get('file_sync.exclude_patterns', [
             '.*', '.tmp_*', '*.tmp', '.DS_Store', 'Thumbs.db', 'desktop.ini'
         ])
         
-        # 预定义的扩展名集合
+        # 预定义的扩展名集合 - 统一使用小写，确保不区分大小写
         self.media_extensions = {
             '.mp4', '.mov', '.jpg', '.jpeg', '.png', '.dng'
         }

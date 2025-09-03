@@ -4,6 +4,15 @@
 
 ## 最新更新记录
 
+### 03/09/2025 - Media Finding Daemon 文件扩展名大小写修复
+完成了 `media_finding_daemon.py` 中文件扩展名判断的大小写敏感问题修复：
+- 🔧 **扩展名处理优化**: 修改 `_load_filter_config` 方法，确保所有文件扩展名判断不区分大小写
+  - 自定义扩展名在加载时统一转换为小写：`self.custom_extensions = set(ext.lower() for ext in custom_exts)`
+  - 预定义扩展名集合已统一使用小写格式
+  - 源文件: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/media_finding_daemon.py`
+- 📁 **文件过滤改进**: 现在 `.MP4`, `.JPG`, `.PNG` 等大写扩展名文件也能正确识别和处理
+- ✅ **兼容性提升**: 提高了对不同来源媒体文件的兼容性，避免因大小写差异导致的文件遗漏
+
 ### 2025-01-25 - Media Finding Daemon 服务配置优化
 完成了 `media_finding_daemon` 服务配置的重要修复和优化：
 - 🔧 **配置路径修复**: 修正了 `media_finding_daemon.py` 中 NAS 配置路径与 `unified_config.json` 结构不匹配的问题
@@ -778,7 +787,7 @@ python3 /home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/media_finding_da
 - ✅ `dock-info-manager.service` (当前运行) - C++媒体下载服务
 
 已废弃的旧服务：
-- ❌ `media-sync-daemon.service` (已停用并废弃)
+- ✅ `media-sync-daemon.service` (已完全移除 - 2025-09-03)
 - ❌ `media_sync_daemon.service` (已清理)
 
 ## 日志轮转配置 (Logrotate)
