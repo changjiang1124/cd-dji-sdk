@@ -59,7 +59,9 @@ the db could be locked due to two daemon? is there a risk? how to solve it? do w
 generate a shell script for to make dock_info_manager effect and restart daemon when changed. e.g. if i changed the interval in configuration, and need to recompile the cc code, and restart the daemon to make it work. you can add some steps you think is necessary. the name and purpose is to deploy_dock_monitor.sh 
 
 ===
-want to have a smoke test, to insert mock up records and files in db and media location, then wait for the media_sync daemon to transfer them, delete them and change the record status in the db. might need to pending for some minutes. 
+**!IMPORTANT**
+want to have a smoke test, to insert mock up records and files in the /data/temp/dji/media/ location, then wait for the media_finding_daemon to transfer them, delete them and change the record status in the db. might need to pending for some minutes. 
+show me a comprehensive report, including when new files created, when found by daemon, when pending, transfered, completed. and if NAS has such files, show me the time.
 
 
 ===
@@ -83,4 +85,7 @@ since we are using the new media_finding_daemon.py, what should we do with the o
 - [x] help me update how-it-works.md regarding the updates.
 
 ---
-rsync.service 在 daemon 里是已经被 media_finding_daemon.service 的能力替换掉了吗？如果是，那么 rsync.service 就可以被删除了。所以 media_finding_daemon.service 是可以同步文件传输的对吧。
+- [x] rsync.service 在 daemon 里是已经被 media_finding_daemon.service 的能力替换掉了吗？如果是，那么 rsync.service 就可以被删除了。所以 media_finding_daemon.service 是可以同步文件传输的对吧。
+
+
+===

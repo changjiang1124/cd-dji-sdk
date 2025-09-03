@@ -22,6 +22,7 @@ import sqlite3
 import json
 import fnmatch
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Set
@@ -88,11 +89,11 @@ class MediaFindingDaemon:
         self.scan_interval = self.config_manager.get('transfer.scan_interval', 30)  # 扫描间隔（秒）
         self.batch_size = self.config_manager.get('transfer.batch_size', 10)  # 批处理大小
         
-        # NAS配置
-        self.nas_host = self.config_manager.get('nas.host', '192.168.1.100')
-        self.nas_username = self.config_manager.get('nas.username', 'admin')
-        self.nas_password = self.config_manager.get('nas.password', '')
-        self.nas_destination = self.config_manager.get('nas.destination_path', '/volume1/EdgeData')
+        # NAS配置 - 修正配置路径以匹配 unified_config.json 结构
+        self.nas_host = self.config_manager.get('nas_settings.host', '192.168.200.103')
+        self.nas_username = self.config_manager.get('nas_settings.username', 'edge_sync')
+        self.nas_ssh_alias = self.config_manager.get('nas_settings.ssh_alias', 'nas-edge')
+        self.nas_destination = self.config_manager.get('nas_settings.base_path', '/volume1/homes/edge_sync/drone_media')
     
     def _load_filter_config(self):
         """加载文件过滤配置"""
@@ -193,12 +194,19 @@ class MediaFindingDaemon:
             self.logger.warning(f"媒体目录不存在: {self.media_directory}")
             return new_files
         
+        self.logger.info(f"正在扫描目录: {self.media_directory}")
+        
         try:
             for root, dirs, files in os.walk(self.media_directory):
+                self.logger.info(f"扫描子目录: {root}, 发现 {len(files)} 个文件")
                 for filename in files:
+                    self.logger.info(f"检查文件: {filename}")
                     if self._should_process_file(filename):
                         file_path = os.path.join(root, filename)
+                        self.logger.info(f"文件通过过滤: {file_path}")
                         new_files.append(file_path)
+                    else:
+                        self.logger.info(f"文件被过滤: {filename}")
         
         except Exception as e:
             self.logger.error(f"扫描目录失败: {str(e)}")
@@ -402,21 +410,46 @@ class MediaFindingDaemon:
                 self.logger.error(f"源文件不存在: {file_path}")
                 return False
             
-            # 构建目标路径
-            # 这里简化实现，实际应该使用rsync或scp等工具
-            # 目前先模拟传输过程
-            self.logger.info(f"模拟传输文件到NAS: {filename}")
+            # 构建目标路径 - 按日期组织
+            from datetime import datetime
+            now = datetime.now()
+            date_path = f"{now.year:04d}/{now.month:02d}/{now.day:02d}"
             
-            # 模拟传输延迟
-            file_size = os.path.getsize(file_path)
-            # 模拟传输速度：10MB/s
-            simulated_duration = max(0.1, file_size / (10 * 1024 * 1024))
-            time.sleep(min(simulated_duration, 2.0))  # 最多等待2秒
+            # 使用实例属性中的NAS配置
+            nas_host = self.nas_host
+            nas_user = self.nas_username
+            nas_ssh_alias = self.nas_ssh_alias  # 使用配置中的SSH别名
+            nas_base_path = self.nas_destination
             
-            # TODO: 实际实现应该调用rsync或其他传输工具
-            # 例如: rsync -avz source_path user@nas_host:destination_path
+            remote_dir = f"{nas_base_path}/{date_path}"
+            remote_path = f"{remote_dir}/{filename}"
             
-            return True
+            self.logger.info(f"开始传输文件到NAS: {filename} -> {nas_user}@{nas_host}:{remote_path} (via {nas_ssh_alias})")
+            
+            # 创建远程目录 - 使用配置中的SSH别名
+            mkdir_cmd = f"ssh {nas_ssh_alias} 'mkdir -p {remote_dir}'"
+            mkdir_result = subprocess.run(mkdir_cmd, shell=True, capture_output=True, text=True, timeout=30)
+            if mkdir_result.returncode != 0:
+                self.logger.error(f"创建远程目录失败: {mkdir_result.stderr}")
+                return False
+            
+            # 使用rsync传输文件 - 使用配置中的SSH别名
+            rsync_cmd = f"rsync -avz '{file_path}' {nas_ssh_alias}:'{remote_path}'"
+            rsync_result = subprocess.run(rsync_cmd, shell=True, capture_output=True, text=True, timeout=300)
+            
+            if rsync_result.returncode == 0:
+                self.logger.info(f"文件传输成功: {filename}")
+                return True
+            else:
+                self.logger.error(f"文件传输失败: {rsync_result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"文件传输超时: {filename}")
+            return False
+        except Exception as e:
+            self.logger.error(f"传输文件时发生错误: {e}")
+            return False
             
         except Exception as e:
             self.logger.error(f"传输文件异常: {str(e)}")

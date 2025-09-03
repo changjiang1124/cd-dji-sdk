@@ -1,0 +1,296 @@
+{
+  "test_metadata": {
+    "test_id": "basic_test_1756885595",
+    "test_version": "2.0",
+    "generated_at": "2025-09-03T15:47:39.129547",
+    "config_file": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json"
+  },
+  "test_result": {
+    "test_id": "basic_test_1756885595",
+    "status": "timeout",
+    "start_time": "2025-09-03 15:46:35.633621",
+    "end_time": "2025-09-03 15:47:39.129190",
+    "duration": 63.495569,
+    "test_file": {
+      "name": "20250903_154635_enhanced_smoke_text_2704928.txt",
+      "path": "/data/temp/dji/media/20250903_154635_enhanced_smoke_text_2704928.txt",
+      "size": 1024,
+      "hash": "aa5b9b6df16dff6a306f15381a2a375a85beba6291273588b4adcf75cce990d4",
+      "file_type": "text",
+      "created_at": "2025-09-03 15:46:35.827433",
+      "expected_remote_path": "/volume1/homes/edge_sync/drone_media/2025/09/03/20250903_154635_enhanced_smoke_text_2704928.txt"
+    },
+    "performance": {
+      "transfer_start_time": "2025-09-03 15:46:35.829875",
+      "transfer_end_time": "2025-09-03 15:47:38.126963",
+      "transfer_duration": 62.297088,
+      "transfer_speed_mbps": 1.5675893229551917e-05,
+      "cpu_usage_percent": 1.4,
+      "memory_usage_mb": 2317.66796875,
+      "disk_io_read_mb": 0.0,
+      "disk_io_write_mb": 6.9375,
+      "network_sent_mb": 0.9846630096435547,
+      "network_recv_mb": 1.018768310546875
+    },
+    "error_message": "传输超时",
+    "diagnostics": {
+      "timestamp": "2025-09-03T15:46:35.633651",
+      "checks": {
+        "disk_space": {
+          "healthy": true,
+          "info": {
+            "path": "/data/temp/dji/media/",
+            "total_gb": 687.94,
+            "used_gb": 35.02,
+            "free_gb": 652.93,
+            "usage_percent": 5.09
+          }
+        },
+        "network_connectivity": {
+          "healthy": true,
+          "info": "连接到 192.168.200.103:22 成功"
+        },
+        "ssh_connection": {
+          "healthy": true,
+          "info": "SSH连接到 nas-edge 成功"
+        },
+        "daemon_status": {
+          "healthy": true,
+          "info": "守护进程正在运行"
+        },
+        "database_health": {
+          "healthy": true,
+          "info": {
+            "path": "/data/temp/dji/media_status.db",
+            "file_size_bytes": 40960,
+            "file_size_mb": 0.04,
+            "statistics": {
+              "total_files": 1,
+              "downloaded_files": 1,
+              "transferred_files": 1,
+              "failed_files": 0
+            }
+          }
+        }
+      },
+      "overall_health": true
+    },
+    "database_records": [
+      {
+        "timestamp": "2025-09-03T15:46:36.831899",
+        "status": {
+          "id": 4,
+          "file_path": "/data/temp/dji/media/20250903_154635_enhanced_smoke_text_2704928.txt",
+          "file_name": "20250903_154635_enhanced_smoke_text_2704928.txt",
+          "download_status": "completed",
+          "transfer_status": "pending",
+          "created_at": "2025-09-03 07:46:35",
+          "updated_at": "2025-09-03 07:46:35"
+        }
+      }
+    ]
+  },
+  "system_info": {
+    "hostname": "celestialdigital",
+    "platform": "linux",
+    "python_version": "3.12.3 (main, Aug 14 2025, 17:47:21) [GCC 13.3.0]",
+    "cpu_count": 8,
+    "memory_total_gb": 31.1,
+    "disk_usage": {
+      "/": {
+        "total_gb": 97.87,
+        "free_gb": 75.13
+      },
+      "/tmp": {
+        "total_gb": 97.87,
+        "free_gb": 75.13
+      }
+    }
+  },
+  "configuration": {
+    "_metadata": {
+      "version": "2.0",
+      "description": "统一配置文件 - 整合所有NAS操作和媒体同步配置",
+      "last_updated": "02/09/2025",
+      "author": "Celestial"
+    },
+    "nas_settings": {
+      "host": "192.168.200.103",
+      "username": "edge_sync",
+      "ssh_alias": "nas-edge",
+      "base_path": "/volume1/homes/edge_sync/drone_media",
+      "backup_path": "EdgeBackup",
+      "description": "NAS服务器连接配置"
+    },
+    "local_settings": {
+      "media_path": "/data/temp/dji/media/",
+      "media_directory": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/media",
+      "temp_path": "/tmp/media",
+      "log_path": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs",
+      "description": "本地存储路径配置"
+    },
+    "sync_settings": {
+      "interval_minutes": 10,
+      "max_retry_attempts": 3,
+      "retry_delay_seconds": 5,
+      "enable_checksum": true,
+      "delete_after_sync": true,
+      "safe_delete_delay_minutes": 30,
+      "sync_timeout_seconds": 300,
+      "enable_atomic_transfer": true,
+      "temp_file_prefix": ".tmp_",
+      "verify_remote_before_delete": true,
+      "description": "同步行为配置"
+    },
+    "transfer": {
+      "scan_interval": 300,
+      "batch_size": 10,
+      "description": "传输控制配置 - 用于media_finding_daemon"
+    },
+    "nas": {
+      "host": "192.168.200.103",
+      "username": "edge_sync",
+      "password": "",
+      "destination_path": "/volume1/homes/edge_sync/drone_media",
+      "description": "NAS传输目标配置"
+    },
+    "file_organization": {
+      "enable_date_structure": true,
+      "date_format": "%Y/%m/%d",
+      "example": "20230815_100000.mp4 -> /EdgeBackup/2023/08/15/20230815_100000.mp4",
+      "description": "文件组织结构配置"
+    },
+    "concurrency_control": {
+      "enable_file_lock": true,
+      "lock_timeout_seconds": 3600,
+      "lock_dir": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs",
+      "max_concurrent_syncs": 1,
+      "description": "并发控制配置"
+    },
+    "storage_management": {
+      "enable_storage_check": true,
+      "warning_threshold_percent": 80,
+      "critical_threshold_percent": 90,
+      "cleanup_target_percent": 70,
+      "check_interval_minutes": 60,
+      "status_file": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/storage_status.json",
+      "enable_auto_cleanup": true,
+      "description": "存储空间管理配置",
+      "cleanup_rules": [
+        {
+          "path_pattern": "*/logs/*",
+          "file_extension": ".log",
+          "max_age_days": 7,
+          "priority": 1,
+          "enabled": true
+        },
+        {
+          "path_pattern": "*/temp/*",
+          "file_extension": "*",
+          "max_age_days": 1,
+          "priority": 2,
+          "enabled": true
+        },
+        {
+          "path_pattern": "*/media/*",
+          "file_extension": ".jpg",
+          "max_age_days": 30,
+          "priority": 3,
+          "enabled": true
+        },
+        {
+          "path_pattern": "*/media/*",
+          "file_extension": ".mp4",
+          "max_age_days": 60,
+          "priority": 4,
+          "enabled": true
+        }
+      ]
+    },
+    "logging": {
+      "level": "INFO",
+      "log_file": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/media_sync.log",
+      "media_finding_log": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/media_finding.log",
+      "max_file_size_mb": 10,
+      "backup_count": 5,
+      "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+      "description": "日志记录配置"
+    },
+    "monitoring": {
+      "enable_health_check": true,
+      "health_check_interval_minutes": 30,
+      "alert_thresholds": {
+        "disk_usage_percent": 85,
+        "sync_failure_count": 5,
+        "connection_timeout_seconds": 30
+      },
+      "description": "系统监控和告警配置"
+    },
+    "security": {
+      "ssh_key_path": "/home/celestial/.ssh/id_rsa",
+      "connection_timeout_seconds": 30,
+      "max_concurrent_transfers": 3,
+      "description": "安全和连接配置"
+    },
+    "database": {
+      "path": "/data/temp/dji/media_status.db",
+      "enable_wal_mode": true,
+      "connection_timeout_seconds": 30,
+      "max_retries": 3,
+      "backup_interval_hours": 24,
+      "cleanup_old_records_days": 90,
+      "description": "数据库配置 - 用于跟踪媒体文件传输状态"
+    },
+    "file_sync": {
+      "filter_strategy": "extended",
+      "custom_extensions": [
+        ".mp4",
+        ".jpg",
+        ".txt",
+        ".las"
+      ],
+      "exclude_patterns": [
+        ".*",
+        ".tmp_*",
+        "*.tmp",
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini"
+      ],
+      "description": "文件同步过滤配置 - 支持media_only/extended/all_files/custom策略"
+    },
+    "dock_info_manager": {
+      "check_interval_seconds": 10,
+      "batch_size": 5,
+      "max_retry_attempts": 3,
+      "retry_delay_seconds": 1,
+      "connection_pool_size": 2,
+      "enable_connection_reuse": true,
+      "sqlite_busy_timeout_ms": 5000,
+      "enable_detailed_logging": true,
+      "description": "dock_info_manager配置 - 用于优化数据库并发访问和性能"
+    },
+    "smoke_test": {
+      "default_file_size_bytes": 1024,
+      "default_wait_minutes": 12,
+      "poll_interval_seconds": 30,
+      "test_file_prefix": "smoketest",
+      "test_file_extension": ".txt",
+      "cleanup_test_files": true,
+      "enable_database_logging": true,
+      "description": "烟雾测试配置 - 用于验证媒体同步守护进程功能"
+    },
+    "diagnostics": {
+      "enable_system_checks": true,
+      "check_disk_space": true,
+      "check_network_connectivity": true,
+      "check_ssh_connection": false,
+      "check_daemon_status": true,
+      "check_database_health": true,
+      "report_format": "detailed",
+      "save_reports": true,
+      "reports_path": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/diagnostics",
+      "description": "系统诊断配置 - 用于全面检查系统健康状态"
+    }
+  }
+}

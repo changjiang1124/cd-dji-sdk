@@ -17,7 +17,7 @@
   
   "local_settings": {
     "media_path": "/data/temp/dji/media/",
-    "media_directory": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/media",
+    "media_directory": "/data/temp/dji/media/",
     "temp_path": "/tmp/media",
     "log_path": "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs",
     "description": "本地存储路径配置"

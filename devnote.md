@@ -4,6 +4,19 @@
 
 ## 最新更新记录
 
+### 2025-01-25 - Media Finding Daemon 服务配置优化
+完成了 `media_finding_daemon` 服务配置的重要修复和优化：
+- 🔧 **配置路径修复**: 修正了 `media_finding_daemon.py` 中 NAS 配置路径与 `unified_config.json` 结构不匹配的问题
+  - 将错误的 `nas.host` 等路径修正为 `nas_settings.host` 等
+  - 源文件: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/media_finding_daemon.py`
+- 🚀 **SSH 别名动态化**: 修复了 `_transfer_file_to_nas` 函数中硬编码 `nas-edge` SSH 别名的问题
+  - 改为使用配置文件中的 `ssh_alias` 值，实现动态配置
+  - 提升了系统的灵活性和可维护性
+- 🗂️ **服务架构简化**: 删除了系统级 `media_finding_daemon.service`，统一使用用户级服务
+  - 避免了权限冲突和配置重复问题
+  - 简化了部署和维护流程
+- ✅ **验证测试**: 修复后重启用户级服务，确认配置正确读取和 SSH 别名正常使用
+
 ### 2025-01-25 - 废弃脚本分析与清理
 完成了项目中废弃脚本文件的全面分析，生成了详细的清理方案：
 - 📋 **分析报告**: `commsdocs/deprecated_scripts_analysis.md` - 详细的废弃文件分析
