@@ -33,6 +33,15 @@ bool ConfigManager::loadConfig(const std::string& config_path) {
     dock_config_.sqlite_busy_timeout_ms = extractIntValue(dock_section, "sqlite_busy_timeout_ms", 30000);
     dock_config_.enable_detailed_logging = extractBoolValue(dock_section, "enable_detailed_logging", false);
 
+    // 解析local_settings配置段
+    std::string local_settings_section = findJsonSection(json_content, "local_settings");
+    if (!local_settings_section.empty()) {
+        std::string media_path = extractStringValue(local_settings_section, "media_path");
+        if (!media_path.empty()) {
+            media_path_ = media_path;
+        }
+    }
+
     std::cout << "Configuration loaded successfully:" << std::endl;
     std::cout << "  check_interval_seconds: " << dock_config_.check_interval_seconds << std::endl;
     std::cout << "  batch_size: " << dock_config_.batch_size << std::endl;
@@ -42,6 +51,7 @@ bool ConfigManager::loadConfig(const std::string& config_path) {
     std::cout << "  enable_connection_reuse: " << (dock_config_.enable_connection_reuse ? "true" : "false") << std::endl;
     std::cout << "  sqlite_busy_timeout_ms: " << dock_config_.sqlite_busy_timeout_ms << std::endl;
     std::cout << "  enable_detailed_logging: " << (dock_config_.enable_detailed_logging ? "true" : "false") << std::endl;
+    std::cout << "  media_path: " << media_path_ << std::endl;
 
     return true;
 }

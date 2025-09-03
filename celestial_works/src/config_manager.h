@@ -27,10 +27,12 @@ public:
 
     bool loadConfig(const std::string& config_path = "/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json");
     const DockInfoManagerConfig& getDockInfoManagerConfig() const { return dock_config_; }
+    const std::string& getMediaPath() const { return media_path_; }
 
 private:
     ConfigManager() = default;
     DockInfoManagerConfig dock_config_;
+    std::string media_path_ = "/data/temp/dji/media/"; // 默认路径
     
     // 简单的JSON解析函数
     std::string extractStringValue(const std::string& json, const std::string& key);

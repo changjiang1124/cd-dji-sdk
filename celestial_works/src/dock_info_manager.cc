@@ -179,9 +179,10 @@ void SetMediaFilePolicy() {
  * @param file_path 原始文件路径（用于数据库记录）
  * @return 保存成功返回true
  */
-bool SaveMediaFileToDirectory(const std::string& filename, const std::vector<uint8_t>& data, const std::string& file_path) {
-    // 使用 /data/temp/dji/media/ 作为媒体文件存储路径（688G 大容量分区）
-    std::string filepath = "/data/temp/dji/media/" + filename;
+bool SaveMediaFileToDirectory(const std::string& filename, const std::vector<uint8_t>& data, const std::string& file_path, ConfigManager& config_manager) {
+    // 从配置文件获取媒体文件存储路径
+    std::string media_path = config_manager.getMediaPath();
+    std::string filepath = media_path + filename;
     
     // 创建目录（如果不存在）
     std::string dir_path = filepath.substr(0, filepath.find_last_of('/'));
@@ -303,7 +304,8 @@ edge_sdk::ErrorCode OnMediaFileUpdate(const edge_sdk::MediaFile& file) {
             std::vector<uint8_t> file_data;
             auto rc = ReadMediaFileContent(file, file_data, reader);
             if (rc == edge_sdk::ErrorCode::kOk && !file_data.empty()) {
-                bool saved = SaveMediaFileToDirectory(file.file_name, file_data, file.file_path);
+                ConfigManager& config_manager = ConfigManager::getInstance();
+                bool saved = SaveMediaFileToDirectory(file.file_name, file_data, file.file_path, config_manager);
                 if (saved) {
                     INFO("✓ 媒体文件已下载并保存: %s", file.file_name.c_str());
                     // 更新数据库状态为下载成功
