@@ -89,3 +89,7 @@ since we are using the new media_finding_daemon.py, what should we do with the o
 
 
 ===
+
+
+标记为下载中的大文件，如果终端下载该怎么处理？
+现在的系统是如何检查NaS上是否有足够的空间呢？以及 edge 上是否有足够的空间？是不是需要单独开启一个低门来执行监测？

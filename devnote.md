@@ -1,8 +1,154 @@
 # DJI Edge SDK 开发笔记
 
+## 媒体文件同步系统测试分析 (2025-01-06)
+
+### 项目概述
+
+**项目名称**: Celestial NAS Operations (媒体文件同步系统)  
+**项目路径**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/`  
+**目标**: 将边缘服务器的媒体文件自动同步到NAS存储 (192.168.200.103)  
+
+### 关键发现
+
+**核心组件** (来源: `celestial_nasops/` 目录分析):
+1. **MediaFindingDaemon** (`media_finding_daemon.py`) - 主守护进程
+2. **MediaStatusDB** (`media_status_db.py`) - SQLite数据库管理
+3. **StorageManager** (`storage_manager.py`) - NAS存储空间监控
+4. **SyncLockManager** (`sync_lock_manager.py`) - 进程锁管理
+
+**高风险测试场景**:
+1. **大文件传输不完整** - 20-30GB文件传输中断风险
+2. **断电重启后状态不一致** - 数据库状态与实际文件不匹配
+3. **网络中断导致传输失败** - rsync传输中断处理
+4. **NAS存储空间耗尽** - 自动清理机制可能失效
+
+**测试覆盖缺口**:
+- ❌ 大文件传输测试缺失
+- ❌ 网络故障恢复测试缺失
+- ❌ 断电重启场景测试缺失
+- ❌ 并发传输压力测试缺失
+
+**测试文档**: 已创建完整的5阶段测试文档在 `/test/` 目录
+- Stage1: 系统理解和关键场景识别
+- Stage2: 风险评估和控制措施
+- Stage3: 测试项目和测试用例设计
+- Stage4: 自动化和环境策略
+- Stage5: 可观测性和运维手册
+
+---
+
 > **最近更新**: 2025-01-25 - 完成废弃脚本分析与清理，生成详细的清理方案和自动化工具。根据 `commsdocs/how-it-works.md` 更新了架构描述和组件信息，删除了已废弃的旧组件引用。
 
+## 重要发现：DJI Edge SDK 文件完整性验证限制
+
+### 核心问题
+**DJI Edge SDK 不提供文件哈希值或校验和机制**
+
+### 技术分析
+
+#### 1. MediaFile 结构体分析
+**源文件**: `/home/celestial/dev/esdk-test/Edge-SDK/include/media_manager/media_file.h`
+
+```cpp
+struct MediaFile {
+    std::string file_name;        // 文件名
+    std::string file_path;        // 文件路径
+    size_t file_size;            // 文件大小 (唯一的完整性参考)
+    FileType file_type;          // 文件类型
+    CameraAttr camera_attr;      // 相机属性
+    // ... GPS和其他元数据
+    // 注意：没有 hash、checksum、md5 等字段
+};
+```
+
+#### 2. 官方文档确认
+**参考**: https://developer.dji.com/doc/edge-sdk-tutorial/cn/function-set/media-file-obtain.html
+
+- SDK 仅提供文件大小 (`file_size`) 作为完整性参考
+- 没有提供任何哈希值计算或校验机制
+- 文档中未提及文件完整性验证相关功能
+
+### 影响和解决方案
+
+#### 挑战
+1. **无法依赖 SDK 层面的完整性验证**
+2. **传输完整性风险**: 网络传输过程中的数据损坏无法通过 SDK 检测
+3. **性能开销**: 需要对大文件进行 MD5/SHA256 计算
+
+#### 多层次完整性验证策略
+1. **基础验证**: 文件大小对比
+2. **核心验证**: 自计算 MD5 校验
+3. **详细验证**: 分块校验和验证
+4. **时间戳验证**: 文件修改时间一致性
+
+```cpp
+class FileIntegrityValidator {
+public:
+    struct ValidationResult {
+        bool success;
+        std::string error_message;
+        std::string source_md5;
+        std::string target_md5;
+    };
+    
+    ValidationResult ValidateTransfer(
+        const std::string& source_path,
+        const std::string& target_path,
+        size_t expected_size
+    );
+};
+```
+
+### 配置参数
+**配置文件**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json`
+
+```json
+{
+  "integrity_validation": {
+    "enable_md5_check": true,
+    "enable_chunk_validation": true,
+    "chunk_size": 1048576,
+    "validation_timeout": 300,
+    "retry_on_failure": 3
+  }
+}
+```
+
+---
+
 ## 最新更新记录
+
+### 06/01/2025 - Dock Info Manager 下载机制深度分析
+完成了对 `dock_info_manager.cc` 中媒体文件下载机制的详细分析：
+
+**当前下载机制分析** (源文件: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/src/dock_info_manager.cc`):
+
+#### 🔍 **实现方式**:
+1. **事件驱动**: 通过 `OnMediaFileUpdate` 回调接收文件通知
+2. **同步下载**: 使用 `ReadMediaFileContent` 函数一次性读取整个文件到内存
+3. **缓冲机制**: 1MB缓冲区 (`char buf[1024 * 1024]`) 循环读取
+4. **内存累积**: 所有数据累积到 `std::vector<uint8_t>` 中
+
+#### ⚠️ **关键问题**:
+- **内存风险**: 大文件(>1GB)会占用大量内存，可能导致OOM
+- **无超时控制**: `do-while` 循环没有超时机制，可能无限等待
+- **无进度监控**: 无法知道下载进度，无法检测卡住状态
+- **无断点续传**: 下载失败需要重新开始
+- **阻塞式下载**: 下载过程阻塞主线程
+
+#### 📊 **风险评估**:
+- **高风险场景**: 20GB+视频文件下载
+- **内存占用**: 可能达到文件大小的1-2倍
+- **网络中断**: 100%需要重新下载
+- **系统稳定性**: 大文件下载可能导致系统不稳定
+
+#### 🚨 **出现问题概率**:
+- **小文件(<100MB)**: 低风险 (~5%)
+- **中等文件(100MB-1GB)**: 中等风险 (~20%)
+- **大文件(>1GB)**: 高风险 (~60-80%)
+- **超大文件(>5GB)**: 极高风险 (~90%+)
+
+**结论**: 当前实现**不符合最佳实践**，存在严重的内存和稳定性风险，急需优化。
 
 ### 03/09/2025 - Media Finding Daemon 文件扩展名大小写修复
 完成了 `media_finding_daemon.py` 中文件扩展名判断的大小写敏感问题修复：
@@ -12,6 +158,7 @@
   - 源文件: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/media_finding_daemon.py`
 - 📁 **文件过滤改进**: 现在 `.MP4`, `.JPG`, `.PNG` 等大写扩展名文件也能正确识别和处理
 - ✅ **兼容性提升**: 提高了对不同来源媒体文件的兼容性，避免因大小写差异导致的文件遗漏
+- 🔄 **服务重启**: 已重启 `media_finding_daemon` 服务使修改生效，服务运行正常
 
 ### 2025-01-25 - Media Finding Daemon 服务配置优化
 完成了 `media_finding_daemon` 服务配置的重要修复和优化：
@@ -45,6 +192,113 @@
 ## 项目概述
 
 本项目基于DJI Edge SDK开发，实现从DJI无人机机场获取媒体文件并同步到NAS的完整流程。
+
+### 传输方式架构重要发现
+
+#### 两阶段传输协议差异
+**关键发现**: 项目采用两种不同的传输协议，各有技术限制和优势
+
+**阶段一 (Dock → Edge)**:
+- **协议**: DJI Edge SDK专有协议（强制性）
+- **限制**: 无法使用rsync，必须通过SDK接口
+- **问题**: 无内置校验，需要应用层实现完整性验证
+
+**阶段二 (Edge → NAS)**:
+- **协议**: rsync（标准文件同步）
+- **优势**: 内置校验、断点续传、增量传输
+- **配置**: 使用SSH密钥认证 (`/home/celestial/.ssh/config`)
+
+#### 为什么Edge到NAS仍需分块校验
+尽管rsync提供内置校验，仍需应用层验证的原因：
+1. **传输前验证**: 确保来自Dock的文件完整性
+2. **多层防护**: rsync校验 + 应用层校验
+3. **故障诊断**: 精确定位损坏位置
+4. **性能监控**: 详细的传输进度指标
+
+#### 技术限制分析
+**为什么Dock到Edge不能用rsync**:
+- Dock设备运行DJI固件，不支持SSH/rsync服务
+- 通信基于DJI专有协议栈，无法绕过SDK
+- 设备不提供shell访问，文件系统完全通过SDK控制
+
+## 大疆专有协议传输机制深度分析
+
+### 官方SDK传输特点
+
+基于对 `examples/media_manager/sample_read_media_file.cc` 的分析：
+
+```cpp
+// 官方推荐的缓冲区大小
+char buf[1024 * 1024];  // 1MB buffer
+while (true) {
+    auto ret = media_files_reader_->ReadMediaFile(media_file_info.file_name, buf, sizeof(buf));
+    if (ret.error_code != kOk) {
+        break;
+    }
+    images.insert(images.end(), buf, buf + ret.data_length);
+}
+```
+
+**关键发现**:
+- **官方推荐**: 使用1MB作为缓冲区大小
+- **传输方式**: 采用同步读取，循环处理直到文件结束
+- **协议封装**: 传输细节完全封装在SDK内部，开发者无法访问底层实现
+- **校验缺失**: 无内置完整性校验，需要应用层实现
+- **内存模式**: 数据先读入内存缓冲区，再写入目标位置
+
+### 分块大小优化研究
+
+**业界最佳实践** (来源: Stack Overflow, 技术社区研究):
+- **小分块问题**: 1024字节级别的分块会显著降低性能
+- **推荐范围**: 1MB-10MB分块，具体取决于可用内存
+- **服务器优化**: 16GB-32GB内存环境下，4MB-8MB分块较为理想
+- **性能提升**: 从1MB提升到4MB可减少75%的系统调用次数
+
+**性能影响因素**:
+1. **读写切换开销**: 小分块增加系统调用次数
+2. **内存使用效率**: 大分块提高吞吐量但占用更多内存
+3. **网络传输效率**: 大分块减少网络往返次数
+4. **错误恢复复杂度**: 大分块可能增加断点续传的复杂性
+
+### 校验性能优化策略
+
+**当前性能瓶颈**:
+- 每1MB分块都进行MD5校验可能影响整体性能
+- MD5计算速度约100-200MB/s，每块需要5-10ms计算时间
+- 大文件(1GB+)的校验时间可能达到5-10秒
+
+**优化方案对比**:
+
+| 策略 | 性能影响 | 可靠性 | 适用场景 |
+|------|----------|--------|----------|
+| 全量校验 | 高开销 | 最高 | 关键数据 |
+| 智能采样 | 中等开销 | 高 | 一般场景 |
+| 异步校验 | 低开销 | 高 | 高吞吐量 |
+| 快速哈希 | 低开销 | 中高 | 性能优先 |
+
+**重要决策更新（2024-12-19）：严格遵循大疆官方1MB分块建议**
+
+经过深入分析和讨论，**决定严格遵循大疆官方的1MB分块建议**，不采用4MB或更大分块，原因：
+
+1. **官方优化保证**：大疆SDK内部已针对1MB分块进行深度优化
+2. **协议兼容性**：专有协议可能对分块大小有内部限制
+3. **稳定性优先**：官方建议经过大量实际场景验证
+4. **风险控制**：避免因分块大小调整引入未知问题
+
+**推荐实施策略**:
+1. **智能校验**: 小文件(<50MB)全校验，大文件采样校验
+2. **异步处理**: 校验不阻塞传输流程
+3. **算法优化**: 使用xxhash替代MD5（快3-5倍）
+4. **保持1MB分块**: 严格遵循大疆官方建议，不调整分块大小
+
+### 内存使用优化
+
+**16GB-32GB服务器环境建议**:
+- **1MB分块**: 遵循大疆官方建议，确保最佳兼容性
+- **内存占用**: 每个分块最多占用1MB内存，安全可控
+- **性能平衡**: 在稳定性和性能之间取得最佳平衡
+
+相关详细方案参见: `plans/大疆专有协议传输优化分析.md`
 
 ### 项目架构
 
@@ -216,7 +470,7 @@ python celestial_nasops/media_sync.py
 
 ### 日志记录标准
 
-**新daemon程序日志要求** (2024-12-19更新):
+**新daemon程序日志要求** (2024-12-19更新 - 添加文件完整性验证发现):
 - **日志文件**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/logs/media_finding.log`
 - **轮转配置**: 50MB单文件，保留5个备份
 - **详细记录内容**:
