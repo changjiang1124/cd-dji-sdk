@@ -38,12 +38,18 @@
 // 自定义数据库操作类
 #include "media_status_db.h"
 #include "config_manager.h"
+#include "media_transfer_adapter.h"
+#include "chunk_transfer_manager.h"
 
 using namespace edge_sdk;
 using namespace celestial;
 
 // 全局数据库实例（将在main函数中初始化配置参数）
-std::unique_ptr<MediaStatusDB> g_media_db = nullptr;
+std::shared_ptr<MediaStatusDB> g_media_db = nullptr;
+
+// 全局媒体传输适配器和分块传输管理器
+std::shared_ptr<ChunkTransferManager> g_chunk_manager = nullptr;
+std::unique_ptr<MediaTransferAdapter> g_media_adapter = nullptr;
 
 /**
  * @brief 获取当前时间戳字符串
@@ -273,78 +279,14 @@ void WriteMediaFileLog(const std::list<std::shared_ptr<edge_sdk::MediaFile>>& fi
 }
 
 edge_sdk::ErrorCode OnMediaFileUpdate(const edge_sdk::MediaFile& file) {
-    INFO("媒体文件更新通知:");
-    INFO("  文件名: %s", file.file_name.c_str());
-    INFO("  文件大小: %llu bytes", file.file_size);
-    INFO("  创建时间: %ld", file.create_time);
-    INFO("  文件类型: %d", static_cast<int>(file.file_type));
-    
-    // 首先在数据库中记录新文件
-    if (g_media_db && !g_media_db->FileExists(file.file_path)) {
-        if (g_media_db->InsertMediaFile(file.file_path, file.file_name, file.file_size)) {
-            INFO("✓ 媒体文件已记录到数据库: %s", file.file_name.c_str());
-        } else {
-            ERROR("数据库插入失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
-            return edge_sdk::ErrorCode::kErrorSystemError;
-        }
+    // 使用新的媒体传输适配器处理文件更新
+    if (!g_media_adapter) {
+        ERROR("媒体传输适配器未初始化");
+        return edge_sdk::ErrorCode::kErrorSystemError;
     }
     
-    // 更新下载状态为正在下载
-    if (g_media_db) {
-        if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::DOWNLOADING, "")) {
-            ERROR("更新下载状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
-        }
-    }
-    
-    // 下载并保存媒体文件到/data/temp/dji/media/目录
-    auto media_manager = edge_sdk::MediaManager::Instance();
-    if (media_manager) {
-        auto reader = media_manager->CreateMediaFilesReader();
-        if (reader && reader->Init() == edge_sdk::ErrorCode::kOk) {
-            std::vector<uint8_t> file_data;
-            auto rc = ReadMediaFileContent(file, file_data, reader);
-            if (rc == edge_sdk::ErrorCode::kOk && !file_data.empty()) {
-                ConfigManager& config_manager = ConfigManager::getInstance();
-                bool saved = SaveMediaFileToDirectory(file.file_name, file_data, file.file_path, config_manager);
-                if (saved) {
-                    INFO("✓ 媒体文件已下载并保存: %s", file.file_name.c_str());
-                    // 更新数据库状态为下载成功
-                    if (g_media_db) {
-                        if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::COMPLETED, "")) {
-                            ERROR("更新下载完成状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
-                        }
-                    }
-                } else {
-                    ERROR("保存媒体文件失败: %s", file.file_name.c_str());
-                    // 更新数据库状态为下载失败
-                    if (g_media_db) {
-                        if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "保存文件失败")) {
-                            ERROR("更新下载失败状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
-                        }
-                    }
-                }
-            } else {
-                ERROR("读取媒体文件内容失败: %s", file.file_name.c_str());
-                // 更新数据库状态为下载失败
-                if (g_media_db) {
-                    if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "读取文件内容失败")) {
-                        ERROR("更新下载失败状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
-                    }
-                }
-            }
-            reader->DeInit();
-        } else {
-            ERROR("创建媒体文件读取器失败: %s", file.file_name.c_str());
-            // 更新数据库状态为下载失败
-            if (g_media_db) {
-                if (!g_media_db->UpdateDownloadStatus(file.file_path, FileStatus::FAILED, "创建文件读取器失败")) {
-                    ERROR("更新下载失败状态失败: %s - %s", file.file_name.c_str(), g_media_db->GetLastError().c_str());
-                }
-            }
-        }
-    }
-    
-    return edge_sdk::ErrorCode::kOk;
+    // 委托给媒体传输适配器处理
+    return g_media_adapter->HandleMediaFileUpdate(file);
 }
 
 /**
@@ -431,7 +373,7 @@ int main() {
     const auto& dock_config = config_manager.getDockInfoManagerConfig();
     
     // 使用配置参数初始化数据库实例
-    g_media_db = std::make_unique<MediaStatusDB>(
+    g_media_db = std::make_shared<MediaStatusDB>(
         "/data/temp/dji/media_status.db",
         dock_config.max_retry_attempts,
         dock_config.retry_delay_seconds,
@@ -459,6 +401,22 @@ int main() {
         return -1;
     }
     INFO("✓ SDK初始化成功");
+
+    // 初始化分块传输管理器
+    g_chunk_manager = std::make_shared<ChunkTransferManager>();
+    if (!g_chunk_manager->Initialize()) {
+        ERROR("分块传输管理器初始化失败");
+        return -1;
+    }
+    INFO("✓ 分块传输管理器初始化成功");
+
+    // 初始化媒体传输适配器
+    g_media_adapter = std::make_unique<MediaTransferAdapter>();
+    if (!g_media_adapter->Initialize(g_chunk_manager, g_media_db)) {
+        ERROR("媒体传输适配器初始化失败");
+        return -1;
+    }
+    INFO("✓ 媒体传输适配器初始化成功");
 
     // 将机场设备信息写入单独文件（输出到logs目录）
     WriteDockInfoToFile(esdk_init, "/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/logs/dock_init_info.txt");

@@ -22,7 +22,12 @@ ChunkTransferManager::ChunkTransferManager()
       active_transfers_(0),
       total_transfers_(0),
       completed_transfers_(0),
-      failed_transfers_(0) {
+      failed_transfers_(0),
+      heartbeat_running_(false),
+      start_time_(std::chrono::system_clock::now()),
+      last_heartbeat_(0),
+      zombie_tasks_cleaned_(0),
+      total_bytes_transferred_(0) {
 }
 
 ChunkTransferManager::~ChunkTransferManager() {
@@ -61,6 +66,9 @@ bool ChunkTransferManager::Initialize() {
         worker_threads_.emplace_back(&ChunkTransferManager::WorkerThread, this);
     }
     
+    // 启动心跳监控
+    StartHeartbeatMonitor();
+    
     initialized_ = true;
     std::cout << "分块传输管理器初始化成功" << std::endl;
     return true;
@@ -72,6 +80,9 @@ void ChunkTransferManager::Shutdown() {
     }
     
     std::cout << "关闭分块传输管理器..." << std::endl;
+    
+    // 停止心跳监控
+    StopHeartbeatMonitor();
     
     // 设置关闭标志
     shutdown_flag_ = true;
@@ -892,5 +903,178 @@ void ChunkTransferManager::CheckTimeoutTasks() {
 }
 
 void ChunkTransferManager::CheckFailedRetries() {
-    // 实现失败重试检查逻辑
+    // TODO: 实现失败重试检查逻辑
+}
+
+// ==================== 监控和运维功能实现 ====================
+
+std::string ChunkTransferManager::GetHealthReport() const {
+    std::lock_guard<std::mutex> lock(health_mutex_);
+    return GenerateHealthJson();
+}
+
+std::string ChunkTransferManager::GetTransferStatistics() const {
+    std::lock_guard<std::mutex> lock(health_mutex_);
+    return GenerateStatisticsJson();
+}
+
+int ChunkTransferManager::CleanupZombieTasks() {
+    auto zombie_tasks = DetectZombieTasks();
+    int cleaned_count = 0;
+    
+    for (const auto& task_id : zombie_tasks) {
+        std::cout << "清理僵尸任务: " << task_id << std::endl;
+        
+        // 取消僵尸任务
+        if (CancelTransfer(task_id)) {
+            cleaned_count++;
+        }
+    }
+    
+    zombie_tasks_cleaned_ += cleaned_count;
+    return cleaned_count;
+}
+
+void ChunkTransferManager::StartHeartbeatMonitor() {
+    if (heartbeat_running_) {
+        return;
+    }
+    
+    heartbeat_running_ = true;
+    heartbeat_thread_ = std::thread(&ChunkTransferManager::HeartbeatMonitorThread, this);
+    std::cout << "心跳监控已启动" << std::endl;
+}
+
+void ChunkTransferManager::StopHeartbeatMonitor() {
+    if (!heartbeat_running_) {
+        return;
+    }
+    
+    heartbeat_running_ = false;
+    if (heartbeat_thread_.joinable()) {
+        heartbeat_thread_.join();
+    }
+    std::cout << "心跳监控已停止" << std::endl;
+}
+
+int64_t ChunkTransferManager::GetUptimeSeconds() const {
+    auto now = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - start_time_);
+    return duration.count();
+}
+
+void ChunkTransferManager::HeartbeatMonitorThread() {
+    const int heartbeat_interval_seconds = 30; // 30秒心跳间隔
+    const int cleanup_interval_minutes = 10;   // 10分钟清理间隔
+    
+    auto last_cleanup = std::chrono::system_clock::now();
+    
+    while (heartbeat_running_) {
+        // 更新心跳时间戳
+        auto now = std::chrono::system_clock::now();
+        last_heartbeat_ = std::chrono::duration_cast<std::chrono::seconds>(
+            now.time_since_epoch()).count();
+        
+        // 定期清理僵尸任务
+        auto time_since_cleanup = std::chrono::duration_cast<std::chrono::minutes>(
+            now - last_cleanup);
+        if (time_since_cleanup.count() >= cleanup_interval_minutes) {
+            CleanupZombieTasks();
+            last_cleanup = now;
+        }
+        
+        // 检查超时任务
+        CheckTimeoutTasks();
+        
+        // 检查失败重试
+        CheckFailedRetries();
+        
+        // 等待下一个心跳间隔
+        std::this_thread::sleep_for(std::chrono::seconds(heartbeat_interval_seconds));
+    }
+}
+
+std::vector<std::string> ChunkTransferManager::DetectZombieTasks(int zombie_timeout_minutes) {
+    std::vector<std::string> zombie_tasks;
+    auto now = std::chrono::system_clock::now();
+    auto timeout_duration = std::chrono::minutes(zombie_timeout_minutes);
+    
+    std::lock_guard<std::mutex> lock(tasks_mutex_);
+    
+    for (const auto& [task_id, task_info_ptr] : transfer_tasks_) {
+        if (!task_info_ptr) continue;
+        
+        const auto& task_info = *task_info_ptr;
+        // 检查任务是否长时间无响应
+        auto task_duration = now - task_info.start_time;
+        
+        if (task_duration > timeout_duration && 
+            task_info.status == TransferStatus::DOWNLOADING) {
+            
+            // 检查是否有活跃的分块传输
+            bool has_active_chunks = false;
+            for (const auto& chunk : task_info.chunks) {
+                if (chunk.status == ChunkStatus::DOWNLOADING) {
+                    auto chunk_duration = now - chunk.last_update;
+                    if (chunk_duration < std::chrono::minutes(5)) { // 5分钟内有活动
+                        has_active_chunks = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!has_active_chunks) {
+                zombie_tasks.push_back(task_id);
+            }
+        }
+    }
+    
+    return zombie_tasks;
+}
+
+std::string ChunkTransferManager::GenerateHealthJson() const {
+    std::ostringstream json;
+    json << "{";
+    json << "\"system_status\":\"" << (initialized_ ? "running" : "stopped") << "\",";
+    json << "\"uptime_seconds\":" << GetUptimeSeconds() << ",";
+    json << "\"last_heartbeat\":" << last_heartbeat_.load() << ",";
+    json << "\"active_transfers\":" << active_transfers_.load() << ",";
+    json << "\"worker_threads\":" << worker_threads_.size() << ",";
+    json << "\"heartbeat_running\":" << (heartbeat_running_ ? "true" : "false") << ",";
+    json << "\"zombie_tasks_cleaned\":" << zombie_tasks_cleaned_.load() << ",";
+    json << "\"memory_usage\":{";
+    json << "\"active_tasks\":" << transfer_tasks_.size() << ",";
+    json << "\"queue_size\":" << task_queue_.size();
+    json << "}";
+    json << "}";
+    return json.str();
+}
+
+std::string ChunkTransferManager::GenerateStatisticsJson() const {
+    std::ostringstream json;
+    json << "{";
+    json << "\"total_transfers\":" << total_transfers_.load() << ",";
+    json << "\"completed_transfers\":" << completed_transfers_.load() << ",";
+    json << "\"failed_transfers\":" << failed_transfers_.load() << ",";
+    json << "\"active_transfers\":" << active_transfers_.load() << ",";
+    json << "\"total_bytes_transferred\":" << total_bytes_transferred_.load() << ",";
+    json << "\"success_rate\":";
+    
+    size_t total = total_transfers_.load();
+    if (total > 0) {
+        double success_rate = (double)completed_transfers_.load() / total * 100.0;
+        json << std::fixed << std::setprecision(2) << success_rate;
+    } else {
+        json << "0.00";
+    }
+    
+    json << ",";
+    json << "\"configuration\":{";
+    json << "\"chunk_size\":" << chunk_size_ << ",";
+    json << "\"max_concurrent_transfers\":" << max_concurrent_transfers_ << ",";
+    json << "\"max_retries\":" << max_retries_ << ",";
+    json << "\"timeout_seconds\":" << timeout_seconds_;
+    json << "}";
+    json << "}";
+    return json.str();
 }

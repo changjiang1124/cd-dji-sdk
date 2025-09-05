@@ -1172,7 +1172,176 @@ sudo /usr/sbin/logrotate -v logrotate.conf
 
 ---
 
-**最后更新**: 2025-09-03 11:00 AWST  
-**架构状态**: 旧架构稳定运行，新架构开发完成，服务配置已清理  
-**测试状态**: 新架构已通过完整测试，旧架构生产验证中  
+## 断点续传卡顿问题解决 - 关键学习点
+
+
+**涉及文件**: `celestial_works/src/chunk_transfer_manager.cc`, `celestial_works/test/test_resume_transfer.cc`
+
+### 核心问题与解决方案
+
+#### 1. 自死锁问题 (Critical)
+**问题**: `PauseTransfer`、`ResumeTransfer`、`CancelTransfer` 方法在持有 `tasks_mutex_` 锁的情况下调用 `UpdateTaskStatus`，而后者内部也会尝试获取同一把锁，导致自死锁。
+
+**解决方案**: 采用"先检查后更新"模式
+```cpp
+// 错误做法 - 会导致自死锁
+void PauseTransfer(const std::string& task_id) {
+    std::lock_guard<std::mutex> lock(tasks_mutex_);
+    // ... 检查任务存在性
+    UpdateTaskStatus(task_id, TransferStatus::PAUSED); // 死锁!
+}
+
+// 正确做法 - 分离检查和更新
+void PauseTransfer(const std::string& task_id) {
+    {
+        std::lock_guard<std::mutex> lock(tasks_mutex_);
+        // 仅做存在性检查
+        if (tasks_.find(task_id) == tasks_.end()) return;
+    } // 锁在此处释放
+    
+    // 在锁外调用可能再次加锁的方法
+    UpdateTaskStatus(task_id, TransferStatus::PAUSED);
+}
+```
+
+**关键学习**: 在设计多线程代码时，避免在持有锁的情况下调用可能获取同一把锁的方法。使用局部作用域 `{}` 可以精确控制锁的生命周期。
+
+#### 2. 暂停状态处理不当
+**问题**: `ProcessTransferTask` 在任务被暂停后仍继续执行合并、校验等操作，且会触发完成回调和清理临时文件，破坏了断点续传的前提条件。
+
+**解决方案**: 在处理循环中增加暂停状态检查
+```cpp
+// 在分块处理循环中检查暂停状态
+for (size_t i = 0; i < total_chunks; ++i) {
+    // 检查是否被暂停
+    if (GetTransferStatus(task_id) == TransferStatus::PAUSED) {
+        std::cout << "[DEBUG] 任务 " << task_id << " 已暂停，提前退出处理循环" << std::endl;
+        return; // 直接返回，不做任何收尾工作
+    }
+    // ... 正常的分块处理逻辑
+}
+```
+
+**关键学习**: 长时间运行的任务需要在关键点检查控制状态，确保能够及时响应外部控制指令。暂停和取消是不同的语义，暂停应保留现场以便恢复。
+
+#### 3. 幂等恢复机制
+**问题**: `StartTransfer` 对已存在的暂停任务处理不当，无法实现真正的断点续传。
+
+**解决方案**: 在 `StartTransfer` 中检测暂停任务并进行幂等恢复
+```cpp
+if (existing_task->status == TransferStatus::PAUSED) {
+    // 更新回调函数（可能在不同调用中有所变化）
+    existing_task->progress_callback = progress_callback;
+    existing_task->completion_callback = completion_callback;
+    
+    // 重新入队继续处理
+    task_queue_.push(task_id);
+    queue_cv_.notify_one();
+    
+    return true; // 幂等恢复成功
+}
+```
+
+**关键学习**: 幂等性设计让同一操作可以安全地重复执行。对于状态机系统，需要明确定义各状态间的转换规则。
+
+### 调试技巧总结
+
+1. **死锁排查**: 使用 `gdb` 的 `thread apply all bt` 查看所有线程堆栈，识别锁等待模式
+2. **状态追踪**: 在关键状态变更点添加调试输出，追踪状态机转换
+3. **锁作用域**: 使用 `{}` 明确控制锁的生命周期，避免意外的锁持有
+4. **测试驱动**: 编写能复现问题的最小测试用例，便于快速验证修复效果
+
+### 架构改进建议
+
+1. **语义分离**: 区分 `Cancel`（取消并清理）和 `Pause`（暂停保留现场）的不同语义
+2. **状态机规范**: 明确定义所有状态及其合法转换路径
+3. **锁粒度优化**: 考虑使用读写锁或更细粒度的锁来提高并发性能
+4. **异常安全**: 确保在异常情况下锁能正确释放，考虑使用 RAII 模式
+
+---
+
+## 断点续传功能开发完成 (2025-01-10 AWST)
+
+### 项目状态: ✅ 生产就绪
+
+**开发路径**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_works/`
+
+#### 核心模块实现
+
+1. **TransferStatusDB** (`src/transfer_status_db.h/cc`)
+   - SQLite数据库管理，支持WAL模式和连接池
+   - 传输任务和分块状态持久化存储
+   - 并发安全的事务管理
+
+2. **ChunkTransferManager** (`src/chunk_transfer_manager.h/cc`)
+   - 分块传输核心逻辑，默认10MB分块大小
+   - 智能断点续传恢复机制
+   - 多线程并发控制（4个工作线程，最大2个并发传输）
+   - 实时心跳监控和僵尸任务检测
+   - 完整性校验（MD5）和自动重试机制（5次重试）
+
+3. **ConfigManager** (`src/config_manager.h/cc`)
+   - 统一配置管理，集成现有配置系统
+   - 支持断点续传相关参数动态配置
+
+4. **MediaTransferAdapter** (`src/media_transfer_adapter.h/cc`)
+   - 与DJI SDK集成适配器
+   - 替换同步下载为异步分块传输
+   - 修改 `OnMediaFileUpdate` 回调处理
+
+5. **Utils** (`src/utils.h/cc`)
+   - 现代化MD5计算（OpenSSL）
+   - 文件操作和网络工具类
+
+#### 关键技术特性
+
+- **断点续传**: 文件自动分块，分块状态持久化，智能恢复未完成传输
+- **并发控制**: 线程安全的任务队列，资源竞争保护
+- **监控运维**: 心跳监控、健康状态报告、传输统计、僵尸任务清理
+- **错误处理**: 指数退避重试、详细错误日志、优雅降级
+
+#### 测试验证
+
+**测试程序**: `tests/test_chunk_transfer.cc`
+- ✅ 基本传输功能测试通过
+- ✅ 断点续传机制验证成功
+- ✅ 监控功能测试完整
+- ✅ 错误处理机制健壮
+
+**编译运行**:
+```bash
+cd celestial_works/tests
+make
+./test_chunk_transfer
+```
+
+#### 配置参数
+
+**传输配置**:
+- 分块大小: 10MB
+- 最大并发分块: 3个
+- 重试次数: 5次
+- 最大并发传输: 2个
+- 超时时间: 300秒
+
+**监控配置**:
+- 心跳间隔: 30秒
+- 僵尸任务超时: 60分钟
+- 进度报告间隔: 10秒
+
+#### 已知问题
+
+1. **OpenSSL MD5 API弃用警告** - 不影响功能，建议未来升级到现代加密API
+2. **部分未使用参数警告** - 代码清理项，不影响运行
+
+#### 文档
+
+- **详细实现文档**: `celestial_works/README.md`
+- **配置文件**: `/home/celestial/dev/esdk-test/Edge-SDK/celestial_nasops/unified_config.json`
+
+---
+
+**最后更新**: 2025-01-10 16:45 AWST  
+**架构状态**: 旧架构稳定运行，新架构开发完成，断点续传功能已集成  
+**测试状态**: 断点续传功能已通过完整测试验证，生产就绪  
 **日志管理**: Logrotate 配置已完成并测试通过

@@ -111,6 +111,39 @@ public:
     // 设置最大重试次数
     void SetMaxRetries(int max_retries);
     
+    /**
+     * @brief 获取系统健康状态报告
+     * @return JSON格式的健康状态字符串
+     */
+    std::string GetHealthReport() const;
+    
+    /**
+     * @brief 获取传输统计信息
+     * @return JSON格式的统计信息字符串
+     */
+    std::string GetTransferStatistics() const;
+    
+    /**
+     * @brief 检测并清理僵尸任务
+     * @return 清理的僵尸任务数量
+     */
+    int CleanupZombieTasks();
+    
+    /**
+     * @brief 启动心跳监控
+     */
+    void StartHeartbeatMonitor();
+    
+    /**
+     * @brief 停止心跳监控
+     */
+    void StopHeartbeatMonitor();
+    
+    /**
+     * @brief 获取系统运行时间（秒）
+     */
+    int64_t GetUptimeSeconds() const;
+    
 private:
     // 初始化配置
     bool LoadConfiguration();
@@ -178,6 +211,28 @@ private:
     // 检查并处理失败重试
     void CheckFailedRetries();
     
+    /**
+     * @brief 心跳监控线程函数
+     */
+    void HeartbeatMonitorThread();
+    
+    /**
+     * @brief 检测僵尸任务
+     * @param zombie_timeout_minutes 僵尸任务超时时间（分钟）
+     * @return 检测到的僵尸任务列表
+     */
+    std::vector<std::string> DetectZombieTasks(int zombie_timeout_minutes = 30);
+    
+    /**
+     * @brief 生成健康状态JSON
+     */
+    std::string GenerateHealthJson() const;
+    
+    /**
+     * @brief 生成统计信息JSON
+     */
+    std::string GenerateStatisticsJson() const;
+
 private:
     // 数据库管理器
     std::unique_ptr<TransferStatusDB> db_manager_;
@@ -215,6 +270,15 @@ private:
     std::atomic<size_t> total_transfers_;   // 总传输数
     std::atomic<size_t> completed_transfers_; // 完成传输数
     std::atomic<size_t> failed_transfers_;    // 失败传输数
+    
+    // 监控相关
+    std::thread heartbeat_thread_;          // 心跳监控线程
+    std::atomic<bool> heartbeat_running_;   // 心跳监控运行标志
+    std::chrono::system_clock::time_point start_time_; // 系统启动时间
+    mutable std::mutex health_mutex_;       // 健康状态互斥锁
+    std::atomic<int64_t> last_heartbeat_;   // 最后心跳时间戳
+    std::atomic<size_t> zombie_tasks_cleaned_; // 清理的僵尸任务数
+    std::atomic<size_t> total_bytes_transferred_; // 总传输字节数
 };
 
 #endif // CHUNK_TRANSFER_MANAGER_H
