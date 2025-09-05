@@ -42,6 +42,63 @@ bool ConfigManager::loadConfig(const std::string& config_path) {
         }
     }
 
+    // 解析dock_transfer_config配置段
+    std::string dock_transfer_section = findJsonSection(json_content, "dock_transfer_config");
+    if (!dock_transfer_section.empty()) {
+        // 解析数据库配置
+        std::string database_section = findJsonSection(dock_transfer_section, "database");
+        if (!database_section.empty()) {
+            std::string db_path = extractStringValue(database_section, "path");
+            if (!db_path.empty()) {
+                dock_transfer_config_.database_path = db_path;
+            }
+            dock_transfer_config_.enable_wal_mode = extractBoolValue(database_section, "enable_wal_mode", true);
+            dock_transfer_config_.connection_timeout_seconds = extractIntValue(database_section, "connection_timeout_seconds", 30);
+            dock_transfer_config_.max_retries = extractIntValue(database_section, "max_retries", 3);
+            dock_transfer_config_.backup_interval_hours = extractIntValue(database_section, "backup_interval_hours", 24);
+            dock_transfer_config_.cleanup_old_records_days = extractIntValue(database_section, "cleanup_old_records_days", 30);
+        }
+        
+        // 解析分块传输配置
+        std::string chunked_section = findJsonSection(dock_transfer_section, "chunked_transfer");
+        if (!chunked_section.empty()) {
+            dock_transfer_config_.chunk_size_mb = extractIntValue(chunked_section, "chunk_size_mb", 10);
+            dock_transfer_config_.max_concurrent_chunks = extractIntValue(chunked_section, "max_concurrent_chunks", 3);
+            dock_transfer_config_.retry_attempts = extractIntValue(chunked_section, "retry_attempts", 5);
+            dock_transfer_config_.retry_delay_seconds = extractIntValue(chunked_section, "retry_delay_seconds", 2);
+            dock_transfer_config_.heartbeat_interval_seconds = extractIntValue(chunked_section, "heartbeat_interval_seconds", 30);
+            dock_transfer_config_.zombie_task_timeout_minutes = extractIntValue(chunked_section, "zombie_task_timeout_minutes", 60);
+            dock_transfer_config_.enable_integrity_check = extractBoolValue(chunked_section, "enable_integrity_check", true);
+            std::string temp_prefix = extractStringValue(chunked_section, "temp_chunk_prefix");
+            if (!temp_prefix.empty()) {
+                dock_transfer_config_.temp_chunk_prefix = temp_prefix;
+            }
+        }
+        
+        // 解析性能配置
+        std::string performance_section = findJsonSection(dock_transfer_section, "performance");
+        if (!performance_section.empty()) {
+            dock_transfer_config_.max_concurrent_transfers = extractIntValue(performance_section, "max_concurrent_transfers", 2);
+            dock_transfer_config_.bandwidth_limit_mbps = extractIntValue(performance_section, "bandwidth_limit_mbps", 0);
+            dock_transfer_config_.enable_compression = extractBoolValue(performance_section, "enable_compression", false);
+            dock_transfer_config_.buffer_size_kb = extractIntValue(performance_section, "buffer_size_kb", 64);
+            dock_transfer_config_.sync_frequency_seconds = extractIntValue(performance_section, "sync_frequency_seconds", 5);
+        }
+        
+        // 解析监控配置
+        std::string monitoring_section = findJsonSection(dock_transfer_section, "monitoring");
+        if (!monitoring_section.empty()) {
+            dock_transfer_config_.enable_progress_tracking = extractBoolValue(monitoring_section, "enable_progress_tracking", true);
+            dock_transfer_config_.progress_report_interval_seconds = extractIntValue(monitoring_section, "progress_report_interval_seconds", 10);
+            dock_transfer_config_.enable_speed_calculation = extractBoolValue(monitoring_section, "enable_speed_calculation", true);
+            dock_transfer_config_.enable_eta_calculation = extractBoolValue(monitoring_section, "enable_eta_calculation", true);
+            std::string log_level = extractStringValue(monitoring_section, "log_level");
+            if (!log_level.empty()) {
+                dock_transfer_config_.log_level = log_level;
+            }
+        }
+    }
+
     std::cout << "Configuration loaded successfully:" << std::endl;
     std::cout << "  check_interval_seconds: " << dock_config_.check_interval_seconds << std::endl;
     std::cout << "  batch_size: " << dock_config_.batch_size << std::endl;
@@ -52,6 +109,9 @@ bool ConfigManager::loadConfig(const std::string& config_path) {
     std::cout << "  sqlite_busy_timeout_ms: " << dock_config_.sqlite_busy_timeout_ms << std::endl;
     std::cout << "  enable_detailed_logging: " << (dock_config_.enable_detailed_logging ? "true" : "false") << std::endl;
     std::cout << "  media_path: " << media_path_ << std::endl;
+    std::cout << "  dock_transfer_database_path: " << dock_transfer_config_.database_path << std::endl;
+    std::cout << "  chunk_size_mb: " << dock_transfer_config_.chunk_size_mb << std::endl;
+    std::cout << "  max_concurrent_chunks: " << dock_transfer_config_.max_concurrent_chunks << std::endl;
 
     return true;
 }

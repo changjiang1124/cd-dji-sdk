@@ -1,4 +1,5 @@
 #include "transfer_status_db.h"
+#include "config_manager.h"
 #include <iostream>
 #include <sstream>
 #include <chrono>
@@ -19,8 +20,18 @@ bool TransferStatusDB::Initialize(const std::string& db_path) {
         return true;
     }
     
+    // 如果没有提供路径，从配置管理器获取
+    std::string actual_db_path = db_path;
+    if (actual_db_path.empty()) {
+        ConfigManager& config = ConfigManager::getInstance();
+        if (!config.loadConfig()) {
+            std::cerr << "无法加载配置文件，使用默认数据库路径" << std::endl;
+        }
+        actual_db_path = config.getDockTransferConfig().database_path;
+    }
+    
     // 打开数据库
-    int rc = sqlite3_open(db_path.c_str(), &db_);
+    int rc = sqlite3_open(actual_db_path.c_str(), &db_);
     if (rc != SQLITE_OK) {
         std::cerr << "无法打开数据库: " << sqlite3_errmsg(db_) << std::endl;
         return false;
@@ -39,7 +50,7 @@ bool TransferStatusDB::Initialize(const std::string& db_path) {
     }
     
     initialized_ = true;
-    std::cout << "传输状态数据库初始化成功: " << db_path << std::endl;
+    std::cout << "传输状态数据库初始化成功: " << actual_db_path << std::endl;
     return true;
 }
 

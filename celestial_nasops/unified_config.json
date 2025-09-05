@@ -142,7 +142,46 @@
     "max_retries": 3,
     "backup_interval_hours": 24,
     "cleanup_old_records_days": 90,
-    "description": "数据库配置 - 用于跟踪媒体文件传输状态"
+    "description": "数据库配置 - 用于跟踪媒体文件传输状态（Edge到NAS阶段）"
+  },
+  
+  "dock_transfer_config": {
+    "database": {
+      "path": "/data/temp/dji/dock_transfer_status.db",
+      "enable_wal_mode": true,
+      "connection_timeout_seconds": 30,
+      "max_retries": 3,
+      "backup_interval_hours": 24,
+      "cleanup_old_records_days": 30,
+      "description": "断点续传数据库配置 - 用于跟踪Dock到Edge的文件传输状态"
+    },
+    "chunked_transfer": {
+      "chunk_size_mb": 10,
+      "max_concurrent_chunks": 3,
+      "retry_attempts": 5,
+      "retry_delay_seconds": 2,
+      "heartbeat_interval_seconds": 30,
+      "zombie_task_timeout_minutes": 60,
+      "enable_integrity_check": true,
+      "temp_chunk_prefix": ".chunk_",
+      "description": "分块传输配置 - 控制断点续传的分块策略和重试机制"
+    },
+    "performance": {
+      "max_concurrent_transfers": 2,
+      "bandwidth_limit_mbps": 0,
+      "enable_compression": false,
+      "buffer_size_kb": 64,
+      "sync_frequency_seconds": 5,
+      "description": "性能优化配置 - 控制传输性能和资源使用"
+    },
+    "monitoring": {
+      "enable_progress_tracking": true,
+      "progress_report_interval_seconds": 10,
+      "enable_speed_calculation": true,
+      "enable_eta_calculation": true,
+      "log_level": "INFO",
+      "description": "监控配置 - 传输进度和性能监控"
+    }
   },
   
   "file_sync": {
