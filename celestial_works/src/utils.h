@@ -3,12 +3,17 @@
 
 #include <string>
 #include <vector>
-#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <chrono>
 
+#if __cplusplus >= 201703L
+#include <filesystem>
 namespace fs = std::filesystem;
+#else
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+#endif
 
 /**
  * 工具类库 - 提供MD5计算、文件操作、网络工具等辅助功能

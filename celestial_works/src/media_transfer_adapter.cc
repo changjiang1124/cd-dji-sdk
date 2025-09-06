@@ -2,7 +2,13 @@
 #include "../../include/logger.h"
 #include "../../include/media_manager/media_manager.h"
 #include "config_manager.h"
+#if __cplusplus >= 201703L
 #include <filesystem>
+namespace fs = std::filesystem;
+#else
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+#endif
 #include <sstream>
 #include <iomanip>
 #include <chrono>
@@ -364,9 +370,9 @@ void MediaTransferAdapter::CleanupTempFile(const std::string& task_id) {
         }
     }
     
-    if (!temp_file_path.empty() && std::filesystem::exists(temp_file_path)) {
+    if (!temp_file_path.empty() && fs::exists(temp_file_path)) {
         try {
-            std::filesystem::remove(temp_file_path);
+            fs::remove(temp_file_path);
             INFO("临时文件已清理: %s", temp_file_path.c_str());
         } catch (const std::exception& e) {
             WARN("清理临时文件失败: %s - %s", temp_file_path.c_str(), e.what());

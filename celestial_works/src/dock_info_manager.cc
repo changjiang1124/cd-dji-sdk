@@ -26,6 +26,7 @@
 #include <list>
 #include <sys/stat.h>
 #include <errno.h>
+#include <filesystem>
 
 // DJI Edge SDK 头文件
 #include "../../include/logger.h"
@@ -190,11 +191,28 @@ bool SaveMediaFileToDirectory(const std::string& filename, const std::vector<uin
     std::string media_path = config_manager.getMediaPath();
     std::string filepath = media_path + filename;
     
-    // 创建目录（如果不存在）
-    std::string dir_path = filepath.substr(0, filepath.find_last_of('/'));
-    if (!dir_path.empty()) {
-        std::string mkdir_cmd = "mkdir -p " + dir_path;
-        system(mkdir_cmd.c_str());
+    // 创建目录（如果不存在）——使用 C++17 的 std::filesystem 替换 system("mkdir -p ...")
+    try {
+        std::filesystem::path p(filepath);
+        auto dir_path = p.parent_path();
+        if (!dir_path.empty()) {
+            // create_directories 在目录已存在时返回 false，不抛异常；在需要创建时返回 true
+            std::error_code ec;
+            std::filesystem::create_directories(dir_path, ec);
+            if (ec) {
+                ERROR("创建目录失败: %s, 错误: %s", dir_path.string().c_str(), ec.message().c_str());
+                if (g_media_db) {
+                    g_media_db->UpdateDownloadStatus(file_path, FileStatus::FAILED, "目录创建失败");
+                }
+                return false;
+            }
+        }
+    } catch (const std::exception& ex) {
+        ERROR("创建目录异常: %s", ex.what());
+        if (g_media_db) {
+            g_media_db->UpdateDownloadStatus(file_path, FileStatus::FAILED, "目录创建异常");
+        }
+        return false;
     }
     
     FILE* f = fopen(filepath.c_str(), "wb");

@@ -118,6 +118,45 @@ public:
 
 ## 最新更新记录
 
+- 2025-09-06 10:23 AWST | 修复: 目录创建使用 std::filesystem 取代 system("mkdir -p ...")，并补充错误处理
+  - 变更位置: celestial_works/src/dock_info_manager.cc 的函数 SaveMediaFileToDirectory
+  - 原因: system 调用未检查返回值触发告警，且存在潜在安全与可移植性问题
+  - 实施: 引入 <filesystem>，使用 std::filesystem::create_directories(父目录, std::error_code)；在失败时记录 ERROR，并将数据库状态标记为 FAILED 返回 false
+  - 影响: 消除编译告警，提升健壮性；不改变成功路径逻辑
+  - 验证: 已在本机完成 CMake 构建并成功生成 dock_info_manager，可进行下载媒体实际写盘冒烟测试
+
+### 06/09/2025 - 一键部署并重启 dock-info-manager 服务脚本
+- 变更内容：新增脚本 `deploy_dock_monitor.sh`，支持一键重新编译 C++ 程序、覆盖二进制并重启 systemd 服务。
+- 位置：`/home/celestial/dev/esdk-test/Edge-SDK/deploy_dock_monitor.sh`
+- 适用场景：修改 `celestial_works/src` 下任何 C++ 源码或依赖配置后，执行脚本使服务生效。
+- 使用方法：
+  - 正常部署：`./deploy_dock_monitor.sh`
+  - 跳过编译：`./deploy_dock_monitor.sh --no-build`
+  - 不重启服务：`./deploy_dock_monitor.sh --no-restart`
+- 关键逻辑：
+  - 调用 `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target dock_info_manager`
+  - 将 `build/bin/dock_info_manager` 覆盖至 `celestial_works/bin/dock_info_manager`（自动备份旧版本）
+  - 若未安装 systemd 单元，调用 `celestial_works/config/install_dock_service.sh` 自动安装
+  - 自动 `systemctl daemon-reload && systemctl start/restart dock-info-manager` 并输出最近 50 行日志
+- 回滚策略：若重启失败自动回滚至最近一次备份并再次启动。
+- 相关文件：
+  - systemd 单元：`celestial_works/config/dock-info-manager.service`
+  - 安装脚本：`celestial_works/config/install_dock_service.sh`
+
+### 06/09/2025 - 修复 C++ 标准导致的编译失败（std::filesystem 与结构化绑定）
+- 现象：Terminal#789-909 多次 make 失败，报错集中在 `std::filesystem` 未声明与结构化绑定语法（`for (auto [k,v] : map)`）需要 C++17。源文件涉及：
+  - `celestial_works/src/chunk_transfer_manager.cc`
+  - `celestial_works/src/media_transfer_adapter.cc`
+  - `celestial_works/src/utils.cc`
+- 根因：顶层 `CMakeLists.txt` 将编译标准固定为 `-std=c++14`，而上述代码及库调用依赖 C++17。
+  - 证据1（代码仓）：`CMakeLists.txt` 第11行：`set(COMMON_CXX_FLAGS "-std=c++14 -pthread")`。
+  - 证据2（项目说明）：`celestial_works/README.md` 第119行写明“需要 C++17 编译器”。
+- 处理：
+  - 将 `CMakeLists.txt` 中 `COMMON_CXX_FLAGS` 从 `-std=c++14` 调整为 `-std=c++17`。
+  - 已为 `chunk_transfer_manager.cc` 与 `media_transfer_adapter.cc` 增加 `<filesystem>` 兼容宏定义，向后兼容 C++14（备用路径）。
+  - 后续统一 utils.cc 等文件的 `std::filesystem` 为 `fs` 命名空间以使用兼容层。
+- 结论：项目应以 C++17 作为最低标准。若目标环境编译器过老，可考虑引入 `ghc::filesystem` 作为替代实现。
+
 ### 06/01/2025 - Dock Info Manager 下载机制深度分析
 完成了对 `dock_info_manager.cc` 中媒体文件下载机制的详细分析：
 
@@ -1248,7 +1287,7 @@ if (existing_task->status == TransferStatus::PAUSED) {
 
 1. **死锁排查**: 使用 `gdb` 的 `thread apply all bt` 查看所有线程堆栈，识别锁等待模式
 2. **状态追踪**: 在关键状态变更点添加调试输出，追踪状态机转换
-3. **锁作用域**: 使用 `{}` 明确控制锁的生命周期，避免意外的锁持有
+3. **锁作用域**: 使用 `{}` 明确控制锁的生命周期，避免意外外的锁持有
 4. **测试驱动**: 编写能复现问题的最小测试用例，便于快速验证修复效果
 
 ### 架构改进建议

@@ -4,12 +4,16 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#if __cplusplus >= 201703L
 #include <filesystem>
+namespace fs = std::filesystem;
+#else
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+#endif
 #include <openssl/md5.h>
 #include <chrono>
 #include <thread>
-
-namespace fs = std::filesystem;
 
 ChunkTransferManager::ChunkTransferManager() 
     : db_manager_(nullptr), config_manager_(nullptr),
@@ -1001,7 +1005,9 @@ std::vector<std::string> ChunkTransferManager::DetectZombieTasks(int zombie_time
     
     std::lock_guard<std::mutex> lock(tasks_mutex_);
     
-    for (const auto& [task_id, task_info_ptr] : transfer_tasks_) {
+    for (const auto& task_pair : transfer_tasks_) {
+        const std::string& task_id = task_pair.first;
+        const auto& task_info_ptr = task_pair.second;
         if (!task_info_ptr) continue;
         
         const auto& task_info = *task_info_ptr;

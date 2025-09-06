@@ -8,7 +8,7 @@ set(CMAKE_EXE_LINKER_FLAGS "-pthread")
 set(CMAKE_C_COMPILER "gcc")
 set(CMAKE_CXX_COMPILER "g++")
 
-set(COMMON_CXX_FLAGS "-std=c++14 -pthread")
+set(COMMON_CXX_FLAGS "-std=c++17 -pthread")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_CXX_FLAGS} -fprofile-arcs -ftest-coverage -Wno-deprecated-declarations")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
@@ -114,7 +114,15 @@ target_link_libraries(sample_set_upload_cloud_strategy ${SAMPLE_LIB})
 add_executable(sample_cloud_api examples/cloud_api/sample_cloud_api.cc)
 target_link_libraries(sample_cloud_api ${SAMPLE_LIB})
 
-add_executable(dock_info_manager celestial_works/src/dock_info_manager.cc celestial_works/src/media_status_db.cc celestial_works/src/config_manager.cc examples/init/pre_init.cc)
+add_executable(dock_info_manager 
+    celestial_works/src/dock_info_manager.cc 
+    celestial_works/src/media_status_db.cc 
+    celestial_works/src/config_manager.cc 
+    celestial_works/src/chunk_transfer_manager.cc 
+    celestial_works/src/media_transfer_adapter.cc 
+    celestial_works/src/transfer_status_db.cc 
+    celestial_works/src/utils.cc 
+    examples/init/pre_init.cc)
 target_link_libraries(dock_info_manager ${SAMPLE_LIB})
 
 # 数据库并发测试程序

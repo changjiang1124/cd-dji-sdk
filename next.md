@@ -89,7 +89,41 @@ since we are using the new media_finding_daemon.py, what should we do with the o
 
 
 ===
-
-
+**DONE**
 标记为下载中的大文件，如果终端下载该怎么处理？
 现在的系统是如何检查NaS上是否有足够的空间呢？以及 edge 上是否有足够的空间？是不是需要单独开启一个低门来执行监测？
+
+===
+潜在风险与改进建议
+
+1. 配置硬编码 :
+   
+   - 问题 : 在 chunk_transfer_manager.cc 中， worker_thread_count_ (工作线程数) 和 timeout_seconds_ (超时时间) 目前是硬编码的。
+   - 风险 : 如果需要调整这些参数，必须重新编译代码，这在生产环境中非常不灵活。
+   - 建议 : 将这些参数移至 unified_config.json 中，并由 ConfigManager 加载，就像 chunk_size_mb 和 max_concurrent_transfers 一样。
+
+2. 数据库并发性能 :
+   
+   - 问题 : TransferStatusDB 在所有数据库操作上都使用了一个全局互斥锁 ( db_mutex_ )。
+   - 风险 : 在高并发下载场景下（例如，同时处理多个媒体文件），这个单一的锁可能会成为性能瓶颈，因为所有线程都需要排队等待数据库访问。
+   - 建议 :
+     - 启用 WAL 模式 : 对于 SQLite，启用 Write-Ahead Logging (WAL) 模式 ( PRAGMA journal_mode=WAL; ) 可以显著提高读写并发性能。
+     - 更细粒度的锁 : 如果性能问题依然存在，可以考虑将锁的粒度细化，例如，为不同的表或不同的任务使用不同的锁。
+
+3. 资源清理 :
+   
+   - 现状 : Shutdown 方法和析构函数确保了线程和基本资源的释放。 sqlite3_prepare_v2 和 sqlite3_finalize 的使用也基本正确。
+   - 建议 : 再次确认所有可能的代码路径（包括异常路径）都能正确释放 sqlite3_stmt 资源。虽然目前看起来不错，但这在 C/C++ 中是常见的错误来源。
+
+
+===
+磁盘空间管理的措施
+
+
+===
+是否需要重启
+
+
+===
+TransferStatusDB::UpdateChunkStatus
+- 批量更新（Batching） : 一个有效的优化策略是 批量更新 。我们可以不在内存中每完成一个分块就立即写入数据库，而是缓存一小组（例如5-10个）已完成的分块状态，然后通过一次数据库事务（Transaction）将它们批量写入。这能显著减少I/O次数和事务开销。
