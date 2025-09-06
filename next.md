@@ -119,11 +119,9 @@ since we are using the new media_finding_daemon.py, what should we do with the o
 ===
 磁盘空间管理的措施
 
-
-===
-是否需要重启
-
-
 ===
 TransferStatusDB::UpdateChunkStatus
 - 批量更新（Batching） : 一个有效的优化策略是 批量更新 。我们可以不在内存中每完成一个分块就立即写入数据库，而是缓存一小组（例如5-10个）已完成的分块状态，然后通过一次数据库事务（Transaction）将它们批量写入。这能显著减少I/O次数和事务开销。
+
+===
+邮件通知传输开始，过程，以及结束，以及中间出现的问题。包括 dock->edge, edge->NAS. 以及邮件通知磁盘情况，包括每日更新，以及事件触发。

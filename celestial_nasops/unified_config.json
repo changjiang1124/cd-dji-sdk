@@ -28,7 +28,7 @@
     "max_retry_attempts": 3,
     "retry_delay_seconds": 5,
     "enable_checksum": true,
-    "delete_after_sync": true,
+    "delete_after_sync": false,
     "safe_delete_delay_minutes": 30,
     "sync_timeout_seconds": 300,
     "enable_atomic_transfer": true,

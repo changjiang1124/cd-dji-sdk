@@ -3,15 +3,15 @@
   "message": "存储空间正常，使用率0.0%",
   "storage_info": {
     "total_space": 7670124396544,
-    "used_space": 1648766976,
-    "free_space": 7668475629568,
-    "usage_percent": 0.0214959613528941,
-    "timestamp": "2025-09-02T23:28:47.652241"
+    "used_space": 1655422976,
+    "free_space": 7668468973568,
+    "usage_percent": 0.0215827396064906,
+    "timestamp": "2025-09-06T18:03:47.321270"
   },
   "thresholds": {
     "warning": 80,
     "critical": 90,
     "cleanup_target": 70
   },
-  "timestamp": "2025-09-02T23:28:47.652406"
+  "timestamp": "2025-09-06T18:03:47.321436"
 }
